@@ -40,6 +40,7 @@ export default function CommunityMarketPage() {
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const [holdings, setHoldings] = useState([]);
   const [showInvite, setShowInvite] = useState(false);
+  const [showRules, setShowRules] = useState(false);
 
   const loadData = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -64,7 +65,7 @@ export default function CommunityMarketPage() {
 
     const { data: marketsData } = await supabase
       .from('player_markets')
-      .select('id, current_price, supply_remaining, shorted_shares, initial_supply, players(id, name, team, role)')
+      .select('id, current_price, supply_remaining, shorted_shares, initial_supply, players(id, name, team, role, avg_points, matches_remaining)')
       .eq('community_id', communityId)
       .order('current_price', { ascending: false });
 
@@ -144,7 +145,10 @@ export default function CommunityMarketPage() {
               {showInvite ? 'Hide code' : 'Invite code'}
             </button>
           </div>
-          <div className="w-5" />
+          <div className="flex items-center gap-3">
+            <button onClick={() => router.push('/community/' + communityId + '/dividends')} className="text-neutral-400 hover:text-white transition-colors cursor-pointer text-lg" title="My Dividends">💰</button>
+            <button onClick={() => router.push('/community/' + communityId + '/leaderboard')} className="text-neutral-400 hover:text-white transition-colors cursor-pointer text-lg" title="Leaderboard">🏆</button>
+          </div>
         </div>
 
         {/* Invite code expanded */}
@@ -191,6 +195,44 @@ export default function CommunityMarketPage() {
             Portfolio{holdings.length > 0 ? ' (' + holdings.length + ')' : ''}
           </button>
         </div>
+      </div>
+
+      {/* How to Play */}
+      <div className="px-4 pt-3">
+        <button onClick={() => setShowRules(!showRules)} className="w-full flex items-center justify-between bg-neutral-900 border border-neutral-800 rounded-xl px-4 py-2.5 text-sm text-neutral-400 hover:text-white transition-colors cursor-pointer">
+          <span>📖 How to Play</span>
+          <span className="text-xs">{showRules ? '▲' : '▼'}</span>
+        </button>
+        {showRules && (
+          <div className="mt-2 bg-neutral-900 border border-neutral-800 rounded-xl p-4 space-y-3 text-sm text-neutral-400 leading-relaxed">
+            <div>
+              <p className="text-white font-semibold mb-1">🏏 The Game</p>
+              <p>Every IPL player is a tradeable stock. Buy low, sell high, or short players you think will underperform. Your goal: grow your ₹20,000 starting cash to the highest net worth by season end.</p>
+            </div>
+            <div>
+              <p className="text-white font-semibold mb-1">💰 Pricing</p>
+              <p>A player&#39;s base price = their average fantasy points × matches remaining. When people buy heavily, prices rise. When they sell, prices fall.</p>
+            </div>
+            <div>
+              <p className="text-white font-semibold mb-1">📊 Dividends</p>
+              <p>After every match, players who scored fantasy points pay dividends at ₹1 per point to those who hold them long. Short-holders pay that dividend instead.</p>
+            </div>
+            <div>
+              <p className="text-white font-semibold mb-1">⚔️ Strategy</p>
+              <p><strong className="text-neutral-300">Long</strong> a player = you bet they&#39;ll outperform expectations.</p>
+              <p><strong className="text-neutral-300">Short</strong> a player = you bet they&#39;ll underperform.</p>
+              <p>Cash can go negative — shorting big players who score well will cost you.</p>
+            </div>
+            <div>
+              <p className="text-white font-semibold mb-1">⭐ Scoring</p>
+              <p>Standard Dream11 T20 points: runs, boundaries, wickets, economy bonus, catches, etc. Playing XI gets +4 just for showing up.</p>
+            </div>
+            <div>
+              <p className="text-white font-semibold mb-1">🏆 At Season End</p>
+              <p>A small floor of ₹100 per share keeps positions valuable during playoffs. Whoever has the highest net worth wins.</p>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Market Tab */}
@@ -276,6 +318,9 @@ export default function CommunityMarketPage() {
                     <p className={"text-xs font-medium " + (isUp ? 'text-emerald-400' : 'text-red-400')}>
                       {isUp ? '▲' : '▼'} {Math.abs(pctChange).toFixed(1)}%
                     </p>
+                    {m.players.avg_points != null && m.players.matches_remaining != null && (
+                      <p className="text-xs text-neutral-500 mt-0.5">Avg {Math.round(m.players.avg_points)} pts • {m.players.matches_remaining} left</p>
+                    )}
                   </div>
                 </button>
               );

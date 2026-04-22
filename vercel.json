@@ -1,0 +1,12 @@
+{
+    "crons": [
+        {
+            "path": "/api/settle-matches",
+            "schedule": "30 18 * * *"
+        },
+        {
+            "path": "/api/settle-matches",
+            "schedule": "30 6 * * *"
+        }
+    ]
+}
