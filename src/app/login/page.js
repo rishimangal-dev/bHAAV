@@ -78,7 +78,7 @@ export default function LoginPage() {
                 </form>
 
                 <p className="text-center text-xs text-neutral-600 mt-8">
-                    We'll email you a 6-digit code to sign in.
+                    We&#39;ll email you a 6-digit code to sign in.
                 </p>
             </div>
         </div>
