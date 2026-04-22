@@ -41,6 +41,7 @@ export default function CommunityMarketPage() {
   const [holdings, setHoldings] = useState([]);
   const [showInvite, setShowInvite] = useState(false);
   const [showRules, setShowRules] = useState(false);
+  const [copiedField, setCopiedField] = useState('');
 
   const loadData = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -153,14 +154,26 @@ export default function CommunityMarketPage() {
 
         {/* Invite code expanded */}
         {showInvite && (
-          <div className="px-4 pb-3 text-center">
-            <p className="text-2xl font-mono font-bold tracking-widest text-emerald-400 mb-1">{community?.invite_code}</p>
-            <button
-              onClick={() => navigator.clipboard.writeText(community?.invite_code || '')}
-              className="text-xs text-neutral-500 hover:text-white transition-colors cursor-pointer"
-            >
-              Tap to copy
-            </button>
+          <div className="px-4 pb-3">
+            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 text-center">
+              <p className="text-xs uppercase tracking-widest text-neutral-500 mb-2">Invite Code</p>
+              <p className="text-2xl font-mono font-bold tracking-widest text-emerald-400 mb-2">{community?.invite_code}</p>
+              <p className="text-xs text-neutral-600 mb-3">Share link: https://b-haav.vercel.app/join/{community?.invite_code}</p>
+              <div className="flex gap-2 justify-center">
+                <button
+                  onClick={() => { navigator.clipboard.writeText(community?.invite_code || ''); setCopiedField('code'); setTimeout(() => setCopiedField(''), 1500); }}
+                  className="px-3 py-1.5 rounded-lg bg-neutral-800 text-xs text-neutral-300 hover:text-white transition-colors cursor-pointer"
+                >
+                  {copiedField === 'code' ? '✓ Copied!' : 'Copy Code'}
+                </button>
+                <button
+                  onClick={() => { navigator.clipboard.writeText('https://b-haav.vercel.app/join/' + (community?.invite_code || '')); setCopiedField('link'); setTimeout(() => setCopiedField(''), 1500); }}
+                  className="px-3 py-1.5 rounded-lg bg-neutral-800 text-xs text-neutral-300 hover:text-white transition-colors cursor-pointer"
+                >
+                  {copiedField === 'link' ? '✓ Copied!' : 'Copy Link'}
+                </button>
+              </div>
+            </div>
           </div>
         )}
 

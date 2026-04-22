@@ -8,6 +8,9 @@ export default function HomePage() {
   const router = useRouter();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [joinCode, setJoinCode] = useState('');
+  const [joinError, setJoinError] = useState('');
+  const [joining, setJoining] = useState(false);
 
   useEffect(() => {
     const init = async () => {
@@ -82,6 +85,40 @@ export default function HomePage() {
             </svg>
           </div>
         </button>
+
+        {/* Join a Community */}
+        <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-5 mb-6">
+          <p className="text-xs uppercase tracking-widest text-neutral-500 mb-3">Join a Community</p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="Enter invite code"
+              value={joinCode}
+              onChange={(e) => { setJoinCode(e.target.value); setJoinError(''); }}
+              className="flex-1 px-4 py-2.5 bg-neutral-800 border border-neutral-700 rounded-xl text-sm text-white placeholder-neutral-600 outline-none focus:border-neutral-500 transition-colors font-mono uppercase tracking-widest"
+            />
+            <button
+              onClick={async () => {
+                if (!joinCode.trim()) return;
+                setJoining(true);
+                setJoinError('');
+                const { data, error } = await supabase.rpc('join_community_by_code', { p_code: joinCode.trim().toUpperCase() });
+                setJoining(false);
+                if (error) { setJoinError(error.message); return; }
+                if (data && data.community_id) { router.push('/community/' + data.community_id); return; }
+                if (data && data.error) { setJoinError(data.error); return; }
+                setJoinError('Invalid code');
+              }}
+              disabled={joining || !joinCode.trim()}
+              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-neutral-800 disabled:text-neutral-600 text-white text-sm font-semibold rounded-xl transition-colors cursor-pointer"
+            >
+              {joining ? '...' : 'Join'}
+            </button>
+          </div>
+          {joinError && (
+            <p className="text-xs text-red-400 mt-2">{joinError}</p>
+          )}
+        </div>
 
         {/* Info card */}
         <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-5">
