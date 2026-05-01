@@ -1,8 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { syncMatches } from '@/lib/sync-matches';
 
 const API_KEY = process.env.CRICKETDATA_API_KEY || '';
 const BASE_URL = 'https://api.cricapi.com/v1';
+const BATCH_LIMIT = 5;
+const MAX_ELAPSED_MS = 50_000; // 50 seconds
 
 async function fetchScorecard(externalId) {
   const url = BASE_URL + '/match_scorecard?apikey=' + API_KEY + '&id=' + externalId;
@@ -109,6 +112,56 @@ async function findPlayerInDb(supabase, extId, name) {
   return null;
 }
 
+async function settleMatchBatch(supabase, matches) {
+  const results = [];
+
+  for (const match of matches) {
+    try {
+      const sc = await fetchScorecard(match.external_id);
+      if (!sc || !sc.scorecard) { results.push({ match: match.team_a + ' vs ' + match.team_b, success: false, error: 'Scorecard unavailable' }); continue; }
+
+      const stats = parsePlayerStats(sc.scorecard);
+      let playersUpdated = 0;
+      const perfRows = [];
+
+      for (const p of stats) {
+        const playerId = await findPlayerInDb(supabase, p.id, p.name);
+        if (!playerId) { console.log('Player not found:', p.name, p.id); continue; }
+        perfRows.push({
+          match_id: match.id, player_id: playerId, external_player_id: p.id,
+          runs: p.runs, balls: p.balls, fours: p.fours, sixes: p.sixes, strike_rate: p.sr,
+          dismissal: p.dismissal, overs: p.overs, maidens: p.maidens, wickets: p.wickets,
+          runs_conceded: p.runs_conceded, economy: p.economy, lbw_bowled: p.lbw_bowled,
+          catches: p.catches, stumpings: p.stumpings, runouts: p.runouts,
+          played: true, fantasy_points: calculateFantasyPoints(p),
+        });
+        playersUpdated++;
+      }
+
+      if (perfRows.length > 0) {
+        const { error: upsertErr } = await supabase.from('match_performances').upsert(perfRows, { onConflict: 'match_id,player_id' });
+        if (upsertErr) { results.push({ match: match.team_a + ' vs ' + match.team_b, success: false, error: upsertErr.message }); continue; }
+      }
+
+      const { data: settleData, error: settleErr } = await supabase.rpc('settle_match', { p_match_id: match.id });
+      if (settleErr) { results.push({ match: match.team_a + ' vs ' + match.team_b, success: false, error: settleErr.message }); continue; }
+
+      results.push({
+        match: match.team_a + ' vs ' + match.team_b,
+        success: true,
+        dividends_paid: settleData?.dividends_paid || 0,
+        shorts_charged: settleData?.shorts_charged || 0,
+        community_avg: settleData?.community_avg_points || 0,
+        players_updated: playersUpdated,
+      });
+    } catch (err) {
+      results.push({ match: match.team_a + ' vs ' + match.team_b, success: false, error: err.message });
+    }
+  }
+
+  return results;
+}
+
 export async function GET(request) {
   try {
     const authHeader = request.headers.get('authorization');
@@ -116,58 +169,55 @@ export async function GET(request) {
 
     const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
-    const { data: matches } = await supabase.from('matches')
-      .select('*').eq('match_ended', true).is('settled_at', null).eq('status', 'completed').limit(20);
-    if (!matches || matches.length === 0) {
-      return NextResponse.json({ success: true, matches_processed: 0, results: [] });
-    }
+    // ─── Step 1: Sync matches from CricketData ───
+    const syncResult = await syncMatches(supabase);
+    const syncedCount = syncResult.success ? (syncResult.synced || 0) : 0;
 
-    const results = [];
-    for (const match of matches) {
-      try {
-        const sc = await fetchScorecard(match.external_id);
-        if (!sc || !sc.scorecard) { results.push({ match: match.team_a + ' vs ' + match.team_b, success: false, error: 'Scorecard unavailable' }); continue; }
+    // ─── Step 2: Loop settlement in batches of 5 ───
+    const startTime = Date.now();
+    const allResults = [];
+    let totalSettled = 0;
+    let stillPending = 0;
 
-        const stats = parsePlayerStats(sc.scorecard);
-        let playersUpdated = 0;
-        const perfRows = [];
+    while (true) {
+      // Check time budget
+      if (Date.now() - startTime > MAX_ELAPSED_MS) {
+        // Count remaining pending matches
+        const { count } = await supabase.from('matches')
+          .select('*', { count: 'exact', head: true })
+          .eq('match_ended', true).is('settled_at', null).eq('status', 'completed');
+        stillPending = count || 0;
+        break;
+      }
 
-        for (const p of stats) {
-          const playerId = await findPlayerInDb(supabase, p.id, p.name);
-          if (!playerId) { console.log('Player not found:', p.name, p.id); continue; }
-          perfRows.push({
-            match_id: match.id, player_id: playerId, external_player_id: p.id,
-            runs: p.runs, balls: p.balls, fours: p.fours, sixes: p.sixes, strike_rate: p.sr,
-            dismissal: p.dismissal, overs: p.overs, maidens: p.maidens, wickets: p.wickets,
-            runs_conceded: p.runs_conceded, economy: p.economy, lbw_bowled: p.lbw_bowled,
-            catches: p.catches, stumpings: p.stumpings, runouts: p.runouts,
-            played: true, fantasy_points: calculateFantasyPoints(p),
-          });
-          playersUpdated++;
-        }
+      // Fetch next batch
+      const { data: matches } = await supabase.from('matches')
+        .select('*').eq('match_ended', true).is('settled_at', null).eq('status', 'completed').limit(BATCH_LIMIT);
 
-        if (perfRows.length > 0) {
-          const { error: upsertErr } = await supabase.from('match_performances').upsert(perfRows, { onConflict: 'match_id,player_id' });
-          if (upsertErr) { results.push({ match: match.team_a + ' vs ' + match.team_b, success: false, error: upsertErr.message }); continue; }
-        }
+      if (!matches || matches.length === 0) {
+        stillPending = 0;
+        break;
+      }
 
-        const { data: settleData, error: settleErr } = await supabase.rpc('settle_match', { p_match_id: match.id });
-        if (settleErr) { results.push({ match: match.team_a + ' vs ' + match.team_b, success: false, error: settleErr.message }); continue; }
+      // Settle batch
+      const batchResults = await settleMatchBatch(supabase, matches);
+      allResults.push(...batchResults);
+      totalSettled += batchResults.filter(r => r.success).length;
 
-        results.push({
-          match: match.team_a + ' vs ' + match.team_b,
-          success: true,
-          dividends_paid: settleData?.dividends_paid || 0,
-          shorts_charged: settleData?.shorts_charged || 0,
-          community_avg: settleData?.community_avg_points || 0,
-          players_updated: playersUpdated,
-        });
-      } catch (err) {
-        results.push({ match: match.team_a + ' vs ' + match.team_b, success: false, error: err.message });
+      // If we got fewer than BATCH_LIMIT, there are no more pending
+      if (matches.length < BATCH_LIMIT) {
+        stillPending = 0;
+        break;
       }
     }
 
-    return NextResponse.json({ success: true, matches_processed: matches.length, results });
+    return NextResponse.json({
+      success: true,
+      synced_matches: syncedCount,
+      total_settled: totalSettled,
+      still_pending: stillPending,
+      results: allResults,
+    });
   } catch (err) {
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
