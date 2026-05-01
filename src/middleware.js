@@ -2,8 +2,18 @@ import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
 const PUBLIC_ROUTES = ['/login', '/verify'];
+const PUBLIC_PREFIXES = ['/join'];
+const PUBLIC_API_PREFIXES = ['/api/settle-matches', '/api/sync-matches'];
 
 export async function middleware(request) {
+    const path = request.nextUrl.pathname;
+
+    // Allow cron/API routes to bypass auth entirely
+    const isPublicApi = PUBLIC_API_PREFIXES.some(prefix => path.startsWith(prefix));
+    if (isPublicApi) {
+        return NextResponse.next();
+    }
+
     const response = NextResponse.next({
         request: { headers: request.headers },
     });
@@ -27,9 +37,8 @@ export async function middleware(request) {
     );
 
     const { data: { user } } = await supabase.auth.getUser();
-
-    const path = request.nextUrl.pathname;
-    const isPublicRoute = PUBLIC_ROUTES.includes(path);
+    const isPublicRoute = PUBLIC_ROUTES.includes(path)
+        || PUBLIC_PREFIXES.some(prefix => path.startsWith(prefix));
 
     if (!user && !isPublicRoute) {
         const loginUrl = new URL('/login', request.url);
