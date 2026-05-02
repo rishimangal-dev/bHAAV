@@ -39,6 +39,30 @@ const ROLE_ICONS = {
   'WK-Batter': '🧤',
 };
 
+function calculatePositionPnl(holding, market) {
+  if (!market || !holding.quantity) return { pnl: 0, pnlPct: 0, error: null };
+  const basePrice = market.base_price;
+  const initialSupply = market.initial_supply;
+  const r = market.supply_remaining;
+  const N = holding.quantity;
+  const avgBuyPrice = holding.avg_buy_price;
+
+  if (holding.position_type === 'long') {
+    let rAfter = r + N;
+    if (rAfter > initialSupply) rAfter = initialSupply;
+    const sellValue = basePrice * initialSupply * Math.log(rAfter / r);
+    const pnl = sellValue - (avgBuyPrice * N);
+    return { pnl, pnlPct: (pnl / (avgBuyPrice * N)) * 100, error: null };
+  } else {
+    const rAfter = r - N;
+    if (rAfter < 1) return { pnl: 0, pnlPct: 0, error: 'Cannot exit' };
+    const coverCost = basePrice * initialSupply * Math.log(r / rAfter);
+    const margin = avgBuyPrice * N;
+    const pnl = margin - coverCost;
+    return { pnl, pnlPct: (pnl / (avgBuyPrice * N)) * 100, error: null };
+  }
+}
+
 export default function CommunityMarketPage() {
   const router = useRouter();
   const { id: communityId } = useParams();
@@ -439,7 +463,9 @@ export default function CommunityMarketPage() {
           {/* Player list */}
           <div>
             {filteredMarkets.map((m) => {
-              const pctChange = ((m.current_price - 100) / 100) * 100;
+              const pctChange = m.base_price > 0 
+                ? ((m.current_price - m.base_price) / m.base_price) * 100 
+                : 0;
               const isUp = pctChange >= 0;
               const teamColor = TEAM_COLORS[m.players.team] || '#666';
               const isLocked = lockedTeams.has(m.players.team);
@@ -482,9 +508,12 @@ export default function CommunityMarketPage() {
                       <p className="text-xs font-medium text-orange-400">🔒 Locked</p>
                     ) : (
                       <p className={"text-xs font-medium " + (isUp ? 'text-emerald-400' : 'text-red-400')}>
-                        {isUp ? '▲' : '▼'} {Math.abs(pctChange).toFixed(1)}%
+                        {isUp ? '▲' : '▼'} {Math.abs(pctChange).toFixed(1)}% vs Base
                       </p>
                     )}
+                    <p className={"text-xs mt-0.5 " + (m.supply_remaining < 2 ? 'text-orange-400' : 'text-neutral-500')}>
+                      {m.supply_remaining} / {m.initial_supply} in pool
+                    </p>
                     {m.players.avg_points != null && m.players.matches_remaining != null && (
                       <p className="text-xs text-neutral-500 mt-0.5">Avg {Math.round(m.players.avg_points)} pts • {m.players.matches_remaining} left</p>
                     )}
@@ -519,14 +548,10 @@ export default function CommunityMarketPage() {
           ) : (
             <div className="px-4 pt-4 space-y-3">
               {holdings.map((h, i) => {
-                console.log('holding player_id:', h.player_id, typeof h.player_id);
-                console.log('first market player id:', markets[0]?.players?.id, typeof markets[0]?.players?.id);
                 const marketRow = markets.find((m) => String(m.players.id) === String(h.player_id));
                 const currentPrice = marketRow ? marketRow.current_price : h.avg_buy_price;
-                const pnl = h.position_type === 'long'
-                  ? (currentPrice - h.avg_buy_price) * h.quantity
-                  : (h.avg_buy_price - currentPrice) * h.quantity;
-                const pnlPct = (pnl / (h.avg_buy_price * h.quantity)) * 100;
+                
+                const { pnl, pnlPct, error: pnlError } = calculatePositionPnl(h, marketRow);
                 const isProfit = pnl >= 0;
 
                 return (
@@ -542,12 +567,18 @@ export default function CommunityMarketPage() {
                         </div>
                       </div>
                       <div className="text-right">
-                        <p className={"text-sm font-bold " + (isProfit ? 'text-emerald-400' : 'text-red-400')}>
-                          {isProfit ? '+' : ''}₹{pnl.toFixed(1)}
-                        </p>
-                        <p className={"text-xs " + (isProfit ? 'text-emerald-500' : 'text-red-500')}>
-                          {isProfit ? '+' : ''}{pnlPct.toFixed(1)}%
-                        </p>
+                        {pnlError ? (
+                          <p className="text-sm font-bold text-orange-400">{pnlError}</p>
+                        ) : (
+                          <>
+                            <p className={"text-sm font-bold " + (isProfit ? 'text-emerald-400' : 'text-red-400')}>
+                              {isProfit ? '+' : ''}₹{pnl.toFixed(1)}
+                            </p>
+                            <p className={"text-xs " + (isProfit ? 'text-emerald-500' : 'text-red-500')}>
+                              {isProfit ? '+' : ''}{pnlPct.toFixed(1)}%
+                            </p>
+                          </>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center justify-between text-xs text-neutral-500">
