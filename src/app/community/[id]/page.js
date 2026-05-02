@@ -173,6 +173,15 @@ export default function CommunityMarketPage() {
     loadData();
   }, [loadData]);
 
+  // 15-second polling fallback
+  useEffect(() => {
+    if (!communityId) return;
+    const interval = setInterval(() => {
+      loadData();
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [communityId, loadData]);
+
   // Auto-refresh lock status every 60 seconds
   useEffect(() => {
     const refreshLocks = async () => {
@@ -210,6 +219,7 @@ export default function CommunityMarketPage() {
           filter: 'community_id=eq.' + communityId,
         },
         async (payload) => {
+          console.log('Realtime transaction event:', payload);
           const tx = payload.new;
 
           // Skip own transactions
@@ -252,8 +262,52 @@ export default function CommunityMarketPage() {
       )
       .subscribe();
 
+    // Realtime markets updates
+    const marketsChannel = supabase
+      .channel('markets-' + communityId)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'player_markets',
+          filter: 'community_id=eq.' + communityId,
+        },
+        (payload) => {
+          console.log('Market update:', payload.new);
+          setMarkets((prev) =>
+            prev.map((m) =>
+              m.id === payload.new.id ? { ...m, ...payload.new } : m
+            )
+          );
+        }
+      )
+      .subscribe();
+
+    // Realtime member updates (e.g., cash balance)
+    const memberChannel = supabase
+      .channel('member-' + communityId + '-' + userId)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'community_members',
+          filter: 'user_id=eq.' + userId,
+        },
+        (payload) => {
+          if (payload.new.community_id === communityId) {
+            console.log('Member update:', payload.new);
+            setMember((prev) => ({ ...prev, ...payload.new }));
+          }
+        }
+      )
+      .subscribe();
+
     return () => {
       supabase.removeChannel(channel);
+      supabase.removeChannel(marketsChannel);
+      supabase.removeChannel(memberChannel);
     };
   }, [communityId, userId]);
 
