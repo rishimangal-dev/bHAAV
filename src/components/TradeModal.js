@@ -69,7 +69,7 @@ function calculateIntegralCost(basePrice, initialSupply, supplyRemaining, quanti
   return { cost, fee, total, error: null };
 }
 
-export default function TradeModal({ market, communityId, member, holdings, onClose, onComplete }) {
+export default function TradeModal({ market, communityId, member, holdings, isLocked, onClose, onComplete }) {
   const [action, setAction] = useState('buy');
   const [quantity, setQuantity] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -165,6 +165,24 @@ export default function TradeModal({ market, communityId, member, holdings, onCl
             <span className="text-lg font-bold text-white">₹{market.current_price.toFixed(1)}</span>
           </div>
         </div>
+
+        {/* Locked state */}
+        {isLocked ? (
+          <div className="px-5 pb-6">
+            <div className="p-5 rounded-xl bg-orange-950/30 border border-orange-900/50 text-center">
+              <p className="text-2xl mb-2">🔒</p>
+              <p className="text-sm font-semibold text-orange-400 mb-1">Market Closed</p>
+              <p className="text-xs text-neutral-400">Match in progress for this player&apos;s team. Trading resumes after settlement.</p>
+            </div>
+            <button
+              onClick={onClose}
+              className="w-full mt-4 py-3.5 rounded-xl bg-neutral-800 text-neutral-300 font-semibold text-sm cursor-pointer hover:bg-neutral-700 transition-colors"
+            >
+              Close
+            </button>
+          </div>
+        ) : (
+          <>
 
         {/* Action tabs */}
         <div className="px-5 pb-2">
@@ -278,6 +296,8 @@ export default function TradeModal({ market, communityId, member, holdings, onCl
             {loading ? 'Processing...' : ACTION_LABELS[action] + ' · ₹' + pricing.total.toFixed(2)}
           </button>
         </div>
+          </>
+        )}
       </div>
     </div>
   );

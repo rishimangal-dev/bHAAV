@@ -42,6 +42,7 @@ export default function CommunityMarketPage() {
   const [showInvite, setShowInvite] = useState(false);
   const [showRules, setShowRules] = useState(false);
   const [copiedField, setCopiedField] = useState('');
+  const [lockedTeams, setLockedTeams] = useState(new Set());
 
   const loadData = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -76,17 +77,54 @@ export default function CommunityMarketPage() {
       .eq('community_id', communityId)
       .eq('user_id', user.id);
 
+    // Fetch live matches to determine locked teams
+    const { data: liveMatches } = await supabase
+      .from('matches')
+      .select('team_a, team_b')
+      .lte('match_datetime_gmt', new Date().toISOString())
+      .is('settled_at', null)
+      .neq('status', 'no_result');
+
+    const locked = new Set();
+    liveMatches?.forEach((m) => {
+      locked.add(m.team_a);
+      locked.add(m.team_b);
+    });
+
     setCommunity(communityData);
     setMember(memberData);
     console.log('member loaded:', memberData);
     setMarkets(marketsData || []);
     setHoldings(holdingsData || []);
+    setLockedTeams(locked);
     setLoading(false);
   }, [communityId, router]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Auto-refresh lock status every 60 seconds
+  useEffect(() => {
+    const refreshLocks = async () => {
+      const { data: liveMatches } = await supabase
+        .from('matches')
+        .select('team_a, team_b')
+        .lte('match_datetime_gmt', new Date().toISOString())
+        .is('settled_at', null)
+        .neq('status', 'no_result');
+
+      const locked = new Set();
+      liveMatches?.forEach((m) => {
+        locked.add(m.team_a);
+        locked.add(m.team_b);
+      });
+      setLockedTeams(locked);
+    };
+
+    const interval = setInterval(refreshLocks, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   const handleTradeComplete = () => {
     setSelectedPlayer(null);
@@ -296,24 +334,25 @@ export default function CommunityMarketPage() {
               const pctChange = ((m.current_price - 100) / 100) * 100;
               const isUp = pctChange >= 0;
               const teamColor = TEAM_COLORS[m.players.team] || '#666';
+              const isLocked = lockedTeams.has(m.players.team);
 
               return (
                 <button
                   key={m.id}
-                  onClick={() => setSelectedPlayer(m)}
-                  className="w-full flex items-center gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-950 transition-colors text-left cursor-pointer"
+                  onClick={() => !isLocked && setSelectedPlayer(m)}
+                  className={"w-full flex items-center gap-3 px-4 py-3 border-b border-neutral-900 transition-colors text-left" + (isLocked ? ' opacity-60 cursor-default' : ' hover:bg-neutral-950 cursor-pointer')}
                 >
                   {/* Team-colored icon */}
                   <div
                     className="w-10 h-10 rounded-lg flex items-center justify-center text-lg shrink-0"
                     style={{ backgroundColor: teamColor + '22' }}
                   >
-                    {ROLE_ICONS[m.players.role] || '🏏'}
+                    {isLocked ? '🔒' : (ROLE_ICONS[m.players.role] || '🏏')}
                   </div>
 
                   {/* Player info */}
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-white truncate">{m.players.name}</p>
+                    <p className={"text-sm font-medium truncate " + (isLocked ? 'text-neutral-400' : 'text-white')}>{m.players.name}</p>
                     <div className="flex items-center gap-1.5 mt-0.5">
                       <span
                         className="text-xs font-bold px-1.5 py-0.5 rounded"
@@ -322,15 +361,22 @@ export default function CommunityMarketPage() {
                         {m.players.team}
                       </span>
                       <span className="text-xs text-neutral-600">{m.players.role}</span>
+                      {isLocked && (
+                        <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-orange-900/40 text-orange-400">Match live</span>
+                      )}
                     </div>
                   </div>
 
                   {/* Price */}
                   <div className="text-right shrink-0">
-                    <p className="text-sm font-bold text-white">₹{m.current_price.toFixed(1)}</p>
-                    <p className={"text-xs font-medium " + (isUp ? 'text-emerald-400' : 'text-red-400')}>
-                      {isUp ? '▲' : '▼'} {Math.abs(pctChange).toFixed(1)}%
-                    </p>
+                    <p className={"text-sm font-bold " + (isLocked ? 'text-neutral-400' : 'text-white')}>₹{m.current_price.toFixed(1)}</p>
+                    {isLocked ? (
+                      <p className="text-xs font-medium text-orange-400">🔒 Locked</p>
+                    ) : (
+                      <p className={"text-xs font-medium " + (isUp ? 'text-emerald-400' : 'text-red-400')}>
+                        {isUp ? '▲' : '▼'} {Math.abs(pctChange).toFixed(1)}%
+                      </p>
+                    )}
                     {m.players.avg_points != null && m.players.matches_remaining != null && (
                       <p className="text-xs text-neutral-500 mt-0.5">Avg {Math.round(m.players.avg_points)} pts • {m.players.matches_remaining} left</p>
                     )}
@@ -403,6 +449,7 @@ export default function CommunityMarketPage() {
           communityId={communityId}
           member={member}
           holdings={holdings}
+          isLocked={lockedTeams.has(selectedPlayer.players.team)}
           onClose={() => setSelectedPlayer(null)}
           onComplete={handleTradeComplete}
         />
