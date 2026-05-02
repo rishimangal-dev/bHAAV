@@ -426,6 +426,7 @@ export default function TradeModal({ market, communityId, member, holdings, isLo
                 const parsed = parseInt(e.target.value, 10);
                 setQuantity(parsed > 0 ? parsed : 1);
               }}
+              onFocus={(e) => e.target.select()}
               onBlur={() => { if (!quantity || quantity < 1) setQuantity(1); }}
               className="w-20 text-4xl font-bold text-white text-center tabular-nums bg-transparent border-b-2 border-neutral-700 focus:border-emerald-500 outline-none transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
             />
