@@ -128,7 +128,7 @@ export default function RulesPage() {
   return (
     <div className="min-h-screen bg-black text-white max-w-lg mx-auto flex flex-col">
       <div className="sticky top-0 bg-black/80 backdrop-blur-md z-10 p-4 border-b border-neutral-900 flex items-center gap-4">
-        <Link href={\`/community/\${id}\`} className="w-10 h-10 bg-neutral-900 rounded-full flex items-center justify-center text-white hover:bg-neutral-800 transition-colors">
+        <Link href={`/community/${id}`} className="w-10 h-10 bg-neutral-900 rounded-full flex items-center justify-center text-white hover:bg-neutral-800 transition-colors">
           ←
         </Link>
         <h1 className="text-xl font-bold">How to Play Bhaav</h1>
@@ -137,13 +137,13 @@ export default function RulesPage() {
       <div className="flex px-4 pt-4 space-x-2 border-b border-neutral-900">
         <button
           onClick={() => setTab('story')}
-          className={\`pb-2 px-1 font-semibold transition-colors \${tab === 'story' ? 'text-white border-b-2 border-white' : 'text-neutral-500 hover:text-white'}\`}
+          className={`pb-2 px-1 font-semibold transition-colors ${tab === 'story' ? 'text-white border-b-2 border-white' : 'text-neutral-500 hover:text-white'}`}
         >
           The Story
         </button>
         <button
           onClick={() => setTab('rules')}
-          className={\`pb-2 px-1 font-semibold transition-colors \${tab === 'rules' ? 'text-white border-b-2 border-white' : 'text-neutral-500 hover:text-white'}\`}
+          className={`pb-2 px-1 font-semibold transition-colors ${tab === 'rules' ? 'text-white border-b-2 border-white' : 'text-neutral-500 hover:text-white'}`}
         >
           Full Rules
         </button>

@@ -173,6 +173,11 @@ export default function TradeModal({ market, communityId, member, holdings, isLo
       }
 
       const priceData = (priceRes.data || []).reverse().map((p) => ({
+        date: formatDateShort(p.recorded_at),
+        price: Number(p.price),
+      }));
+
+      setPriceHistory(priceData);
       setPerformances(perfData);
       setStatsLoaded(true);
     };
