@@ -239,9 +239,17 @@ export default function TradeModal({ market, communityId, member, holdings, isLo
             >
               −
             </button>
-            <span className="text-4xl font-bold text-white w-16 text-center tabular-nums">
-              {quantity}
-            </span>
+            <input
+              type="number"
+              min="1"
+              value={quantity}
+              onChange={(e) => {
+                const parsed = parseInt(e.target.value, 10);
+                setQuantity(parsed > 0 ? parsed : 1);
+              }}
+              onBlur={() => { if (!quantity || quantity < 1) setQuantity(1); }}
+              className="w-20 text-4xl font-bold text-white text-center tabular-nums bg-transparent border-b-2 border-neutral-700 focus:border-emerald-500 outline-none transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            />
             <button
               onClick={() => setQuantity((q) => q + 1)}
               className="w-11 h-11 rounded-full bg-neutral-900 border border-neutral-800 text-white text-xl font-bold flex items-center justify-center hover:bg-neutral-800 transition-colors cursor-pointer"

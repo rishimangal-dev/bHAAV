@@ -1,9 +1,23 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import TradeModal from '@/components/TradeModal';
+
+const ACTION_VERBS = {
+  buy: 'bought',
+  sell: 'sold',
+  short: 'shorted',
+  cover: 'covered',
+};
+
+const ACTION_BORDER = {
+  buy: 'border-emerald-700',
+  sell: 'border-orange-700',
+  short: 'border-red-700',
+  cover: 'border-blue-700',
+};
 
 const TEAM_COLORS = {
   RCB: '#ec1c24',
@@ -43,9 +57,13 @@ export default function CommunityMarketPage() {
   const [showRules, setShowRules] = useState(false);
   const [copiedField, setCopiedField] = useState('');
   const [lockedTeams, setLockedTeams] = useState(new Set());
+  const [toasts, setToasts] = useState([]);
+  const [userId, setUserId] = useState(null);
+  const toastIdRef = useRef(0);
 
   const loadData = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
+    setUserId(user?.id || null);
 
     const { data: communityData } = await supabase
       .from('communities')
@@ -126,6 +144,68 @@ export default function CommunityMarketPage() {
     return () => clearInterval(interval);
   }, []);
 
+  // Realtime trade notifications
+  useEffect(() => {
+    if (!communityId || !userId) return;
+
+    const channel = supabase
+      .channel('trades-' + communityId)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'transactions',
+          filter: 'community_id=eq.' + communityId,
+        },
+        async (payload) => {
+          const tx = payload.new;
+
+          // Skip own transactions
+          if (tx.user_id === userId) return;
+
+          // Fetch display name
+          const { data: profile } = await supabase
+            .from('community_members')
+            .select('display_name')
+            .eq('community_id', communityId)
+            .eq('user_id', tx.user_id)
+            .maybeSingle();
+
+          // Fetch player name
+          const { data: player } = await supabase
+            .from('players')
+            .select('name')
+            .eq('id', tx.player_id)
+            .maybeSingle();
+
+          const displayName = profile?.display_name || 'Someone';
+          const playerName = player?.name || 'Unknown';
+          const verb = ACTION_VERBS[tx.action] || tx.action;
+          const price = Number(tx.price_per_share || 0).toFixed(0);
+
+          const id = ++toastIdRef.current;
+          const toast = {
+            id,
+            text: `${displayName} ${verb} ${tx.quantity} ${playerName} @ ₹${price}`,
+            action: tx.action,
+          };
+
+          setToasts((prev) => [toast, ...prev].slice(0, 3));
+
+          // Auto-remove after 5 seconds
+          setTimeout(() => {
+            setToasts((prev) => prev.filter((t) => t.id !== id));
+          }, 5000);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [communityId, userId]);
+
   const handleTradeComplete = () => {
     setSelectedPlayer(null);
     loadData();
@@ -185,6 +265,7 @@ export default function CommunityMarketPage() {
             </button>
           </div>
           <div className="flex items-center gap-3">
+            <button onClick={() => router.push('/community/' + communityId + '/rivals')} className="text-neutral-400 hover:text-white transition-colors cursor-pointer text-lg" title="Rivals">👀</button>
             <button onClick={() => router.push('/community/' + communityId + '/dividends')} className="text-neutral-400 hover:text-white transition-colors cursor-pointer text-lg" title="My Dividends">💰</button>
             <button onClick={() => router.push('/community/' + communityId + '/leaderboard')} className="text-neutral-400 hover:text-white transition-colors cursor-pointer text-lg" title="Leaderboard">🏆</button>
           </div>
@@ -454,6 +535,33 @@ export default function CommunityMarketPage() {
           onComplete={handleTradeComplete}
         />
       )}
+
+      {/* Trade notification toasts */}
+      <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-xs">
+        {toasts.map((toast) => (
+          <div
+            key={toast.id}
+            className={"px-4 py-3 rounded-xl bg-neutral-900/95 backdrop-blur-sm border-l-4 shadow-lg animate-[slideIn_0.3s_ease-out] " + (ACTION_BORDER[toast.action] || 'border-neutral-700')}
+            style={{ animation: 'slideIn 0.3s ease-out' }}
+          >
+            <p className="text-xs text-neutral-300">{toast.text}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Slide-in animation */}
+      <style jsx>{`
+        @keyframes slideIn {
+          from {
+            opacity: 0;
+            transform: translateX(100%);
+          }
+          to {
+            opacity: 1;
+            transform: translateX(0);
+          }
+        }
+      `}</style>
     </div>
   );
 }
