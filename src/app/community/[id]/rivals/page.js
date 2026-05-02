@@ -83,42 +83,11 @@ export default function RivalsPage() {
     );
   }
 
-  // Markets not locked — data unavailable
-  if (!data?.available) {
-    return (
-      <div className="min-h-screen bg-black text-white max-w-md mx-auto">
-        <div className="sticky top-0 z-40 bg-black/90 backdrop-blur-md border-b border-neutral-800 px-4 py-3">
-          <div className="flex items-center gap-3">
-            <Link href={'/community/' + communityId} className="text-neutral-400 hover:text-white transition-colors">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-            </Link>
-            <h1 className="text-sm font-semibold">Rivals</h1>
-          </div>
-        </div>
-        <div className="flex flex-col items-center justify-center py-24 px-6 text-center">
-          <p className="text-5xl mb-4">🔒</p>
-          <h2 className="text-lg font-semibold text-white mb-2">Rivals data is hidden</h2>
-          <p className="text-sm text-neutral-400 mb-1">
-            {data?.message || 'Rivals data is only available when matches are live.'}
-          </p>
-          <p className="text-xs text-neutral-600 mb-8">
-            Come back during a match to see what your rivals are holding and trading.
-          </p>
-          <Link
-            href={'/community/' + communityId}
-            className="px-6 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-sm text-neutral-300 hover:text-white transition-colors"
-          >
-            Back to Community
-          </Link>
-        </div>
-      </div>
-    );
-  }
+  // TODO: Re-enable lock check to hide rivals when markets are open
+  // if (!data?.available) { return <LockedView />; }
 
-  // Markets locked — show rivals data
-  const members = data.members || [];
+  // Always show rivals data regardless of market lock status
+  const members = data?.members || [];
 
   return (
     <div className="min-h-screen bg-black text-white max-w-md mx-auto">

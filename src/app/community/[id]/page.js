@@ -57,6 +57,7 @@ export default function CommunityMarketPage() {
   const [showRules, setShowRules] = useState(false);
   const [copiedField, setCopiedField] = useState('');
   const [lockedTeams, setLockedTeams] = useState(new Set());
+  const [lastPerfMap, setLastPerfMap] = useState({});
   const [toasts, setToasts] = useState([]);
   const [userId, setUserId] = useState(null);
   const toastIdRef = useRef(0);
@@ -115,6 +116,32 @@ export default function CommunityMarketPage() {
     setMarkets(marketsData || []);
     setHoldings(holdingsData || []);
     setLockedTeams(locked);
+
+    // Fetch last match performances for all players
+    const playerIds = (marketsData || []).map((m) => m.players.id);
+    if (playerIds.length > 0) {
+      const { data: perfData } = await supabase
+        .from('match_performances')
+        .select('player_id, fantasy_points, played, matches!inner(match_date, team_a, team_b)')
+        .in('player_id', playerIds)
+        .order('matches(match_date)', { ascending: false });
+
+      const perfMap = {};
+      (perfData || []).forEach((p) => {
+        if (!perfMap[p.player_id]) {
+          // Find the opponent team for this player
+          const playerTeam = (marketsData || []).find((m) => m.players.id === p.player_id)?.players?.team;
+          const opponent = playerTeam === p.matches.team_a ? p.matches.team_b : p.matches.team_a;
+          perfMap[p.player_id] = {
+            points: p.fantasy_points,
+            played: p.played,
+            opponent,
+          };
+        }
+      });
+      setLastPerfMap(perfMap);
+    }
+
     setLoading(false);
   }, [communityId, router]);
 
@@ -461,6 +488,17 @@ export default function CommunityMarketPage() {
                     {m.players.avg_points != null && m.players.matches_remaining != null && (
                       <p className="text-xs text-neutral-500 mt-0.5">Avg {Math.round(m.players.avg_points)} pts • {m.players.matches_remaining} left</p>
                     )}
+                    {(() => {
+                      const perf = lastPerfMap[m.players.id];
+                      if (!perf) return <p className="text-xs text-neutral-600 mt-0.5 italic">Last: DNP</p>;
+                      if (perf.played === false) return <p className="text-xs text-neutral-600 mt-0.5">Last: 0 pts (benched)</p>;
+                      const aboveAvg = m.players.avg_points != null && perf.points > m.players.avg_points;
+                      return (
+                        <p className={"text-xs mt-0.5 " + (aboveAvg ? 'text-emerald-500' : 'text-neutral-500')}>
+                          Last: {perf.points} pts vs {perf.opponent}
+                        </p>
+                      );
+                    })()}
                   </div>
                 </button>
               );

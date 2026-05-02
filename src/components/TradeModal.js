@@ -1,7 +1,18 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  BarChart,
+  Bar,
+  Cell,
+} from 'recharts';
 
 const ACTION_LABELS = {
   buy: 'Buy Long',
@@ -69,11 +80,42 @@ function calculateIntegralCost(basePrice, initialSupply, supplyRemaining, quanti
   return { cost, fee, total, error: null };
 }
 
+function formatDateShort(dateStr) {
+  const d = new Date(dateStr);
+  const day = d.getDate();
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return day + ' ' + months[d.getMonth()];
+}
+
+function CustomTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-xs shadow-lg">
+      <p className="text-neutral-400 mb-1">{label}</p>
+      <p className="text-white font-bold">₹{Number(payload[0].value).toFixed(1)}</p>
+    </div>
+  );
+}
+
+function PerfTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-xs shadow-lg">
+      <p className="text-neutral-400 mb-1">{label}</p>
+      <p className="text-white font-bold">{payload[0].value} pts</p>
+    </div>
+  );
+}
+
 export default function TradeModal({ market, communityId, member, holdings, isLocked, onClose, onComplete }) {
   const [action, setAction] = useState('buy');
   const [quantity, setQuantity] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showStats, setShowStats] = useState(false);
+  const [priceHistory, setPriceHistory] = useState([]);
+  const [performances, setPerformances] = useState([]);
+  const [statsLoaded, setStatsLoaded] = useState(false);
 
   const existingLong = holdings.find(
     (h) => h.player_id === market.players.id && h.position_type === 'long'
@@ -81,6 +123,50 @@ export default function TradeModal({ market, communityId, member, holdings, isLo
   const existingShort = holdings.find(
     (h) => h.player_id === market.players.id && h.position_type === 'short'
   );
+
+  // Fetch chart data when stats section is opened
+  useEffect(() => {
+    if (!showStats || statsLoaded) return;
+
+    const fetchStats = async () => {
+      const [priceRes, perfRes] = await Promise.all([
+        supabase
+          .from('price_history')
+          .select('price, recorded_at')
+          .eq('community_id', communityId)
+          .eq('player_id', market.players.id)
+          .order('recorded_at', { ascending: false })
+          .limit(30),
+        supabase
+          .from('match_performances')
+          .select('fantasy_points, matches!inner(match_date, team_a, team_b)')
+          .eq('player_id', market.players.id)
+          .order('matches(match_date)', { ascending: false })
+          .limit(5),
+      ]);
+
+      const priceData = (priceRes.data || []).reverse().map((p) => ({
+        date: formatDateShort(p.recorded_at),
+        price: Number(p.price),
+      }));
+
+      const perfData = (perfRes.data || []).reverse().map((p) => {
+        const opponent = market.players.team === p.matches.team_a
+          ? p.matches.team_b
+          : p.matches.team_a;
+        return {
+          date: 'vs ' + opponent,
+          points: p.fantasy_points,
+        };
+      });
+
+      setPriceHistory(priceData);
+      setPerformances(perfData);
+      setStatsLoaded(true);
+    };
+
+    fetchStats();
+  }, [showStats, statsLoaded, communityId, market.players.id, market.players.team]);
 
   // Calculate cost using integral pricing formula
   const pricing = useMemo(() => {
@@ -147,7 +233,7 @@ export default function TradeModal({ market, communityId, member, holdings, isLo
       onClick={onClose}
     >
       <div
-        className="bg-neutral-950 rounded-t-3xl w-full max-w-md mx-auto border-t border-neutral-800 pb-6"
+        className="bg-neutral-950 rounded-t-3xl w-full max-w-md mx-auto border-t border-neutral-800 pb-6 max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Drag handle */}
@@ -183,6 +269,99 @@ export default function TradeModal({ market, communityId, member, holdings, isLo
           </div>
         ) : (
           <>
+
+        {/* Stats collapsible */}
+        <div className="px-5 pb-3">
+          <button
+            onClick={() => setShowStats(!showStats)}
+            className="w-full flex items-center justify-between bg-neutral-900 border border-neutral-800 rounded-xl px-4 py-2.5 text-sm text-neutral-400 hover:text-white transition-colors cursor-pointer"
+          >
+            <span>📊 Stats</span>
+            <span className="text-xs">{showStats ? '▲' : '▼'}</span>
+          </button>
+
+          {showStats && (
+            <div className="mt-2 space-y-3">
+              {/* Price history chart */}
+              {priceHistory.length > 0 && (
+                <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3">
+                  <p className="text-xs uppercase tracking-widest text-neutral-500 mb-2">Price History</p>
+                  <div style={{ width: '100%', height: 150 }}>
+                    <ResponsiveContainer>
+                      <LineChart data={priceHistory}>
+                        <XAxis
+                          dataKey="date"
+                          tick={{ fontSize: 10, fill: '#737373' }}
+                          axisLine={{ stroke: '#404040' }}
+                          tickLine={false}
+                        />
+                        <YAxis
+                          tick={{ fontSize: 10, fill: '#737373' }}
+                          axisLine={false}
+                          tickLine={false}
+                          width={40}
+                          domain={['dataMin', 'dataMax']}
+                          tickFormatter={(v) => '₹' + v}
+                        />
+                        <Tooltip content={<CustomTooltip />} />
+                        <Line
+                          type="monotone"
+                          dataKey="price"
+                          stroke="#34d399"
+                          strokeWidth={2}
+                          dot={false}
+                          activeDot={{ r: 4, fill: '#34d399' }}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
+
+              {/* Performance chart */}
+              {performances.length > 0 && (
+                <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3">
+                  <p className="text-xs uppercase tracking-widest text-neutral-500 mb-2">Recent Performances</p>
+                  <div style={{ width: '100%', height: 150 }}>
+                    <ResponsiveContainer>
+                      <BarChart data={performances}>
+                        <XAxis
+                          dataKey="date"
+                          tick={{ fontSize: 10, fill: '#737373' }}
+                          axisLine={{ stroke: '#404040' }}
+                          tickLine={false}
+                        />
+                        <YAxis
+                          tick={{ fontSize: 10, fill: '#737373' }}
+                          axisLine={false}
+                          tickLine={false}
+                          width={30}
+                        />
+                        <Tooltip content={<PerfTooltip />} />
+                        <Bar dataKey="points" radius={[4, 4, 0, 0]}>
+                          {performances.map((entry, index) => (
+                            <Cell
+                              key={index}
+                              fill={entry.points >= (market.players.avg_points || 0) ? '#34d399' : '#737373'}
+                            />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
+
+              {priceHistory.length === 0 && performances.length === 0 && statsLoaded && (
+                <p className="text-xs text-neutral-600 text-center py-3">No stats available yet</p>
+              )}
+
+              {!statsLoaded && (
+                <p className="text-xs text-neutral-500 text-center py-3">Loading stats...</p>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Action tabs */}
         <div className="px-5 pb-2">
