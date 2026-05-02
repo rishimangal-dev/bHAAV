@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 
 const ACTION_LABELS = {
@@ -31,6 +31,44 @@ const RPC_MAP = {
   cover: 'cover_short',
 };
 
+function calculateIntegralCost(basePrice, initialSupply, supplyRemaining, quantity, action) {
+  if (!quantity || quantity <= 0 || !basePrice || !initialSupply || supplyRemaining == null) {
+    return { cost: 0, fee: 0, total: 0, error: null };
+  }
+
+  const remainingBefore = supplyRemaining;
+  let remainingAfter;
+
+  switch (action) {
+    case 'buy':
+      remainingAfter = remainingBefore - quantity;
+      break;
+    case 'sell':
+      remainingAfter = Math.min(remainingBefore + quantity, initialSupply);
+      break;
+    case 'short':
+      remainingAfter = remainingBefore + quantity;
+      break;
+    case 'cover':
+      remainingAfter = remainingBefore - quantity;
+      break;
+    default:
+      return { cost: 0, fee: 0, total: 0, error: null };
+  }
+
+  // Check liquidity for buy/cover (remaining_after must be >= 1)
+  if ((action === 'buy' || action === 'cover') && remainingAfter < 1) {
+    return { cost: 0, fee: 0, total: 0, error: 'Not enough liquidity in pool' };
+  }
+
+  const rawCost = basePrice * initialSupply * Math.log(remainingBefore / remainingAfter);
+  const cost = Math.abs(rawCost);
+  const fee = cost * 0.005;
+  const total = cost + fee;
+
+  return { cost, fee, total, error: null };
+}
+
 export default function TradeModal({ market, communityId, member, holdings, onClose, onComplete }) {
   const [action, setAction] = useState('buy');
   const [quantity, setQuantity] = useState(1);
@@ -44,8 +82,27 @@ export default function TradeModal({ market, communityId, member, holdings, onCl
     (h) => h.player_id === market.players.id && h.position_type === 'short'
   );
 
-  const fee = market.current_price * quantity * 0.005;
-  const totalCost = market.current_price * quantity + fee;
+  // Calculate cost using integral pricing formula
+  const pricing = useMemo(() => {
+    return calculateIntegralCost(
+      market.base_price,
+      market.initial_supply,
+      market.supply_remaining,
+      quantity,
+      action
+    );
+  }, [market.base_price, market.initial_supply, market.supply_remaining, quantity, action]);
+
+  // Sell quantity validation
+  const sellQuantityError = (action === 'sell' && existingLong && quantity > existingLong.quantity)
+    ? `You only hold ${existingLong.quantity} shares`
+    : null;
+
+  const coverQuantityError = (action === 'cover' && existingShort && quantity > existingShort.quantity)
+    ? `You only hold ${existingShort.quantity} shares`
+    : null;
+
+  const displayError = pricing.error || sellQuantityError || coverQuantityError;
 
   const handleTrade = async () => {
     setLoading(true);
@@ -168,7 +225,7 @@ export default function TradeModal({ market, communityId, member, holdings, onCl
               {quantity}
             </span>
             <button
-              onClick={() => setQuantity((q) => Math.min(50, q + 1))}
+              onClick={() => setQuantity((q) => q + 1)}
               className="w-11 h-11 rounded-full bg-neutral-900 border border-neutral-800 text-white text-xl font-bold flex items-center justify-center hover:bg-neutral-800 transition-colors cursor-pointer"
             >
               +
@@ -178,18 +235,26 @@ export default function TradeModal({ market, communityId, member, holdings, onCl
 
         {/* Summary box */}
         <div className="mx-5 mb-4 p-4 rounded-xl bg-neutral-900 border border-neutral-800">
-          <div className="flex justify-between text-sm mb-2">
-            <span className="text-neutral-400">Price per share</span>
-            <span className="text-white">₹{market.current_price.toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between text-sm mb-3">
-            <span className="text-neutral-400">Fee (0.5%)</span>
-            <span className="text-white">₹{fee.toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between text-sm pt-3 border-t border-neutral-800">
-            <span className="text-neutral-300 font-medium">Total</span>
-            <span className="text-white font-bold">₹{totalCost.toFixed(2)}</span>
-          </div>
+          {displayError ? (
+            <p className="text-sm text-red-400 text-center">{displayError}</p>
+          ) : (
+            <>
+              <div className="flex justify-between text-sm mb-2">
+                <span className="text-neutral-400">
+                  {action === 'sell' || action === 'cover' ? 'You receive' : 'Cost'}
+                </span>
+                <span className="text-white">₹{pricing.cost.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between text-sm mb-3">
+                <span className="text-neutral-400">Fee (0.5%)</span>
+                <span className="text-white">₹{pricing.fee.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between text-sm pt-3 border-t border-neutral-800">
+                <span className="text-neutral-300 font-medium">Total</span>
+                <span className="text-white font-bold">₹{pricing.total.toFixed(2)}</span>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Error */}
@@ -203,14 +268,14 @@ export default function TradeModal({ market, communityId, member, holdings, onCl
         <div className="px-5">
           <button
             onClick={handleTrade}
-            disabled={loading}
+            disabled={loading || !!displayError}
             className={
               'w-full py-3.5 rounded-xl text-white font-semibold text-sm transition-all ' +
               ACTION_COLORS[action] +
-              (loading ? ' opacity-50 cursor-not-allowed' : ' cursor-pointer')
+              ((loading || displayError) ? ' opacity-50 cursor-not-allowed' : ' cursor-pointer')
             }
           >
-            {loading ? 'Processing...' : ACTION_LABELS[action] + ' · ₹' + totalCost.toFixed(2)}
+            {loading ? 'Processing...' : ACTION_LABELS[action] + ' · ₹' + pricing.total.toFixed(2)}
           </button>
         </div>
       </div>

@@ -66,7 +66,7 @@ export default function CommunityMarketPage() {
 
     const { data: marketsData } = await supabase
       .from('player_markets')
-      .select('id, current_price, supply_remaining, shorted_shares, initial_supply, players(id, name, team, role, avg_points, matches_remaining)')
+      .select('id, base_price, current_price, supply_remaining, shorted_shares, initial_supply, players(id, name, team, role, avg_points, matches_remaining)')
       .eq('community_id', communityId)
       .order('current_price', { ascending: false });
 
