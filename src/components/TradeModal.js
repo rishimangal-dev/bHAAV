@@ -42,42 +42,21 @@ const RPC_MAP = {
   cover: 'cover_short',
 };
 
-function calculateIntegralCost(basePrice, initialSupply, supplyRemaining, quantity, action) {
-  if (!quantity || quantity <= 0 || !basePrice || !initialSupply || supplyRemaining == null) {
-    return { cost: 0, fee: 0, total: 0, error: null };
+function calculateCost(action, quantity, market) {
+  if (!market || quantity <= 0) {
+    return { ok: true, cost: 0, fee: 0, total: 0 };
   }
-
-  const remainingBefore = supplyRemaining;
-  let remainingAfter;
-
-  switch (action) {
-    case 'buy':
-      remainingAfter = remainingBefore - quantity;
-      break;
-    case 'sell':
-      remainingAfter = Math.min(remainingBefore + quantity, initialSupply);
-      break;
-    case 'short':
-      remainingAfter = remainingBefore + quantity;
-      break;
-    case 'cover':
-      remainingAfter = remainingBefore - quantity;
-      break;
-    default:
-      return { cost: 0, fee: 0, total: 0, error: null };
-  }
-
-  // Check liquidity for buy/cover (remaining_after must be >= 1)
-  if ((action === 'buy' || action === 'cover') && remainingAfter < 1) {
-    return { cost: 0, fee: 0, total: 0, error: 'Not enough liquidity in pool' };
-  }
-
-  const rawCost = basePrice * initialSupply * Math.log(remainingBefore / remainingAfter);
-  const cost = Math.abs(rawCost);
+  
+  const cost = Number(market.current_price) * quantity;
   const fee = cost * 0.005;
   const total = cost + fee;
-
-  return { cost, fee, total, error: null };
+  
+  return {
+    ok: true,
+    cost: cost,
+    fee: fee,
+    total: total
+  };
 }
 
 function formatDateShort(dateStr) {
@@ -185,16 +164,10 @@ export default function TradeModal({ market, communityId, member, holdings, isLo
     fetchStats();
   }, [showStats, statsLoaded, communityId, market.players.id, market.players.team]);
 
-  // Calculate cost using integral pricing formula
+  // Calculate cost using flat pricing formula
   const pricing = useMemo(() => {
-    return calculateIntegralCost(
-      market.base_price,
-      market.initial_supply,
-      market.supply_remaining,
-      quantity,
-      action
-    );
-  }, [market.base_price, market.initial_supply, market.supply_remaining, quantity, action]);
+    return calculateCost(action, quantity, market);
+  }, [action, quantity, market]);
 
   // Sell quantity validation
   const sellQuantityError = (action === 'sell' && existingLong && quantity > existingLong.quantity)
@@ -205,7 +178,23 @@ export default function TradeModal({ market, communityId, member, holdings, isLo
     ? `You only hold ${existingShort.quantity} shares`
     : null;
 
-  const displayError = pricing.error || sellQuantityError || coverQuantityError;
+  const buyCapError = (action === 'buy')
+    ? (quantity + (existingLong?.quantity || 0) > 10)
+      ? existingLong ? `You already have ${existingLong.quantity} long shares — max ${10 - existingLong.quantity} more allowed.` : `You can only hold 10 long shares per player`
+      : null
+    : null;
+
+  const shortCapError = (action === 'short')
+    ? (quantity + (existingShort?.quantity || 0) > 5)
+      ? existingShort ? `You already have ${existingShort.quantity} short shares — max ${5 - existingShort.quantity} more allowed.` : `You can only short 5 shares per player`
+      : null
+    : null;
+
+  const liquidityError = (action === 'buy' && market.supply_remaining < quantity)
+    ? `Not enough liquidity in pool`
+    : null;
+
+  const displayError = pricing.error || sellQuantityError || coverQuantityError || buyCapError || shortCapError || liquidityError;
 
   const handleTrade = async () => {
     setLoading(true);

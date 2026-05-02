@@ -48,12 +48,18 @@ export default function LoginPage() {
                 {/* Google Sign In */}
                 <button
                     onClick={async () => {
-                        await supabase.auth.signInWithOAuth({
-                            provider: 'google',
-                            options: {
-                                redirectTo: `${window.location.origin}/auth/callback`,
-                            },
-                        });
+                        console.log('Google sign-in clicked');
+                        try {
+                            const { error } = await supabase.auth.signInWithOAuth({
+                                provider: 'google',
+                                options: {
+                                    redirectTo: `${window.location.origin}/auth/callback`,
+                                },
+                            });
+                            if (error) console.error('OAuth error:', error);
+                        } catch (err) {
+                            console.error('Sign-in exception:', err);
+                        }
                     }}
                     className="w-full flex items-center justify-center gap-3 py-3 bg-white text-neutral-800 font-semibold rounded-xl hover:bg-neutral-100 transition-colors cursor-pointer"
                 >

@@ -55,6 +55,7 @@ export default function RivalsPage() {
         return;
       }
 
+      console.log('Rivals data received:', result);
       setData(result);
       setLoading(false);
     };
@@ -108,7 +109,12 @@ export default function RivalsPage() {
 
       {/* Members */}
       <div className="px-4 pt-4 pb-20 space-y-4">
-        {members.map((m) => (
+        {!data ? (
+          <div className="text-center py-10 text-neutral-500 text-sm">Loading...</div>
+        ) : members.length === 0 ? (
+          <div className="text-center py-10 text-neutral-500 text-sm">No members yet.</div>
+        ) : (
+          members.map((m) => (
           <div
             key={m.user_id}
             className={"rounded-xl border overflow-hidden " + (m.is_self ? 'border-emerald-800 bg-emerald-950/20' : 'border-neutral-800 bg-neutral-900')}

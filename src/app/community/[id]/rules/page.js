@@ -12,13 +12,13 @@ Your friend made you join Bhaav. You have ₹20,000 and a list of every IPL play
 
 You see **Joss the Boss** at ₹420. He's been smashing it. You buy 10 shares for ₹4,200. That night GT plays. He scores 78. The next morning, your account is up by **₹780** — ₹1 per fantasy point per share. Easy.
 
-Next day Joss is now ₹520. Three friends saw the same thing and piled in. Pool of shares shrunk. Price went up. **More demand = higher price.** You hold.
+Next day Joss's average goes up after his great innings. His new price is now ₹520. You hold.
 
-You decide to short someone. **Vaipya Parag** — averaging 40, but his last three innings are 7, 12, 9. You short 10 shares at ₹160. The system locks ₹1,600 as margin. He scores 14. Price drops to ₹120. You cover for ₹400 profit, pay ₹140 in dividends. Net: ₹260. Smooth.
+You decide to short someone. **Vaipya Parag** — averaging 40, but his last three innings are 7, 12, 9. You short 5 shares at ₹160. The system locks ₹800 as margin. He scores 14. Price drops to ₹120. You cover for ₹200 profit, pay ₹70 in dividends. Net: ₹130. Smooth.
 
-Encouraged, you short **Bhaisa Pant** at ₹300 for 8 shares. He scores 96. The buffalo runs. You owe ₹768 in dividends, and his price has shot to ₹520. If you cover now: ₹2,528 down — more than your margin. **Shorts can lose more than you put in.**
+Encouraged, you short **Bhaisa Pant** at ₹300 for 5 shares. He scores 96. The buffalo runs. You owe ₹480 in dividends, and his price has shot to ₹520. If you cover now: ₹1,580 down — more than your margin. **Shorts can lose more than you put in.**
 
-Doom-scrolling, you spot **Mukesh Kumar** at DC. Average 35. ₹210. Nobody's buying him. You take 5 shares. Over 4 matches, he averages 70 points. Dividends: ₹1,400. Price climbs to ₹380 as others catch on. You sell. Profit: ₹2,350. **Find the underrated. Sell to the hype.**
+Doom-scrolling, you spot **Mukesh Kumar** at DC. Average 35. ₹210. You take 5 shares. Over 4 matches, he averages 70 points. Dividends: ₹1,400. Price climbs to ₹380 as his average shoots up. You sell. Profit: ₹2,250. **Find the underrated.**
 
 You go big and load up on **Sir Ravindra Jadeja** before MI's match. 15 shares at ₹560. At 7:30 PM, markets lock. You can't trade until settlement. Sir Ravindra has a quiet day — 6 runs, 0 wickets. Tomorrow: price ₹390. You're down ₹2,550. Markets lock during games to stop people front-running performances.
 
@@ -35,11 +35,11 @@ You made some money. You learned how it works. Next year you're picking the next
 - Start with ₹20,000. Highest net worth at season end wins.
 - Buy = bet they perform. Short = bet they don't.
 - Dividends: ₹1 per fantasy point per share, after every match.
-- Player price = Avg points × Matches remaining (and adjusts with buying/selling pressure).
+- Player price = Avg points × Matches remaining.
 - Markets lock during matches, reopen after settlement.
 - Cash can go negative. Shorts can blow up.
 - Boring consistent players often beat star buys.
-- Find the underrated. Sell to the hype.
+- Find the underrated.
 `;
 
 const rulesContent = `
@@ -56,9 +56,9 @@ Every player has:
 - **Avg fantasy points** — running average of all IPL 2026 matches they've played. Rookies start at role defaults (Batter 45, Bowler 35, All-rounder 50, WK-Batter 50).
 - **Matches remaining** — actual scheduled matches their team has left.
 
-**Base price = Avg × Matches remaining** (floor ₹100)
+**Price = Avg × Matches remaining** (floor ₹100)
 
-Market price moves around the base via a bonding curve — more buying = price rises, more selling/shorting = price falls.
+The price updates automatically after every match based on the player's new average and remaining matches.
 
 ### Trading
 
@@ -67,7 +67,7 @@ Market price moves around the base via a bonding curve — more buying = price r
 - **Open short:** margin gets locked. Profit if price falls.
 - **Cover short:** buy back to close.
 
-Fee: **0.5%** per transaction. No position caps.
+Fee: **0.5%** per transaction. Position caps: 10 long shares, 5 short shares per player.
 
 ### Dividends — paid after every match
 
@@ -104,11 +104,6 @@ Fee: **0.5%** per transaction. No position caps.
 
 Each player has \`10 × community size\` shares. Bigger community = bigger pool.
 
-### Bonding curve math
-
-- Buy N shares cost: \`base × initial × ln(supply_before / supply_after)\`
-- Sell N shares proceeds: \`base × initial × ln(supply_after / supply_before)\`
-- Cost is invariant to order size — no advantage to splitting orders.
 
 ### Edge cases
 

@@ -39,29 +39,22 @@ const ROLE_ICONS = {
   'WK-Batter': '🧤',
 };
 
-function calculatePositionPnl(holding, market) {
-  if (!market || !holding.quantity) return { pnl: 0, pnlPct: 0, error: null };
-  const basePrice = market.base_price;
-  const initialSupply = market.initial_supply;
-  const r = market.supply_remaining;
-  const N = holding.quantity;
-  const avgBuyPrice = holding.avg_buy_price;
-
+const calculatePositionPnl = (holding, market) => {
+  if (!holding || !market) return { error: 'no data', pnl: 0, pnlPct: 0 };
+  
+  const currentPrice = Number(market.current_price);
+  const avgBuyPrice = Number(holding.avg_buy_price);
+  const qty = Number(holding.quantity);
+  
   if (holding.position_type === 'long') {
-    let rAfter = r + N;
-    if (rAfter > initialSupply) rAfter = initialSupply;
-    const sellValue = basePrice * initialSupply * Math.log(rAfter / r);
-    const pnl = sellValue - (avgBuyPrice * N);
-    return { pnl, pnlPct: (pnl / (avgBuyPrice * N)) * 100, error: null };
+    const pnl = (currentPrice - avgBuyPrice) * qty;
+    return { pnl, pnlPct: (pnl / (avgBuyPrice * qty)) * 100, error: null };
   } else {
-    const rAfter = r - N;
-    if (rAfter < 1) return { pnl: 0, pnlPct: 0, error: 'Cannot exit' };
-    const coverCost = basePrice * initialSupply * Math.log(r / rAfter);
-    const margin = avgBuyPrice * N;
-    const pnl = margin - coverCost;
-    return { pnl, pnlPct: (pnl / (avgBuyPrice * N)) * 100, error: null };
+    // short: profit when price drops
+    const pnl = (avgBuyPrice - currentPrice) * qty;
+    return { pnl, pnlPct: (pnl / (avgBuyPrice * qty)) * 100, error: null };
   }
-}
+};
 
 export default function CommunityMarketPage() {
   const router = useRouter();
@@ -291,7 +284,9 @@ export default function CommunityMarketPage() {
           }, 5000);
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('Realtime trades subscribed!', status);
+      });
 
     // Realtime markets updates
     const marketsChannel = supabase
@@ -313,7 +308,9 @@ export default function CommunityMarketPage() {
           );
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('Realtime markets subscribed!', status);
+      });
 
     // Realtime member updates (e.g., cash balance)
     const memberChannel = supabase
@@ -333,7 +330,9 @@ export default function CommunityMarketPage() {
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('Realtime member subscribed!', status);
+      });
 
     return () => {
       supabase.removeChannel(channel);
@@ -517,10 +516,6 @@ export default function CommunityMarketPage() {
           {/* Player list */}
           <div>
             {filteredMarkets.map((m) => {
-              const pctChange = m.base_price > 0 
-                ? ((m.current_price - m.base_price) / m.base_price) * 100 
-                : 0;
-              const isUp = pctChange >= 0;
               const teamColor = TEAM_COLORS[m.players.team] || '#666';
               const isLocked = lockedTeams.has(m.players.team);
 
@@ -558,15 +553,11 @@ export default function CommunityMarketPage() {
                   {/* Price */}
                   <div className="text-right shrink-0">
                     <p className={"text-sm font-bold " + (isLocked ? 'text-neutral-400' : 'text-white')}>₹{m.current_price.toFixed(1)}</p>
-                    {isLocked ? (
+                    {isLocked && (
                       <p className="text-xs font-medium text-orange-400">🔒 Locked</p>
-                    ) : (
-                      <p className={"text-xs font-medium " + (isUp ? 'text-emerald-400' : 'text-red-400')}>
-                        {isUp ? '▲' : '▼'} {Math.abs(pctChange).toFixed(1)}% vs Base
-                      </p>
                     )}
-                    <p className={"text-xs mt-0.5 " + (m.supply_remaining < 2 ? 'text-orange-400' : 'text-neutral-500')}>
-                      {m.supply_remaining} / {m.initial_supply} in pool
+                    <p className={"text-xs mt-0.5 " + (m.supply_remaining < 5 ? 'text-orange-400' : 'text-neutral-500')}>
+                      {m.supply_remaining} / 30 in pool
                     </p>
                     {m.players.avg_points != null && m.players.matches_remaining != null && (
                       <p className="text-xs text-neutral-500 mt-0.5">Avg {Math.round(m.players.avg_points)} pts • {m.players.matches_remaining} left</p>

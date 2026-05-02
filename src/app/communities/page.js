@@ -110,7 +110,7 @@ export default function CommunitiesPage() {
                                 placeholder="ENTER CODE"
                                 value={inviteCode}
                                 onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
-                                maxLength={6}
+                                maxLength={12}
                                 className="w-full px-4 py-3 bg-neutral-900 border border-neutral-800 rounded-xl text-white text-center text-lg tracking-[0.3em] font-mono uppercase focus:outline-none focus:border-neutral-600"
                             />
                             {joinError && <div className="text-red-400 text-sm px-1">{joinError}</div>}
