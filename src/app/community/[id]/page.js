@@ -74,14 +74,15 @@ export default function CommunityMarketPage() {
   const [tab, setTab] = useState('market');
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('All');
-  const [sortBy, setSortBy] = useState('price');
+  const [sortBy, setSortBy] = useState('next_match');
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const [holdings, setHoldings] = useState([]);
   const [showInvite, setShowInvite] = useState(false);
-  const [showRules, setShowRules] = useState(false);
   const [copiedField, setCopiedField] = useState('');
   const [lockedTeams, setLockedTeams] = useState(new Set());
+  const [nextMatchByTeam, setNextMatchByTeam] = useState({});
   const [lastPerfMap, setLastPerfMap] = useState({});
+  const [dividendMap, setDividendMap] = useState({});
   const [toasts, setToasts] = useState([]);
   const [userId, setUserId] = useState(null);
   const toastIdRef = useRef(0);
@@ -140,6 +141,36 @@ export default function CommunityMarketPage() {
     setMarkets(marketsData || []);
     setHoldings(holdingsData || []);
     setLockedTeams(locked);
+
+    // Fetch upcoming matches for sorting
+    const { data: nextMatches } = await supabase
+      .from('matches')
+      .select('team_a, team_b, match_datetime_gmt')
+      .gt('match_datetime_gmt', new Date().toISOString())
+      .order('match_datetime_gmt', { ascending: true })
+      .limit(5);
+
+    const nextMatchMap = {};
+    nextMatches?.forEach(m => {
+      const ts = new Date(m.match_datetime_gmt).getTime();
+      if (!nextMatchMap[m.team_a]) nextMatchMap[m.team_a] = ts;
+      if (!nextMatchMap[m.team_b]) nextMatchMap[m.team_b] = ts;
+    });
+    setNextMatchByTeam(nextMatchMap);
+
+    // Fetch dividend ledger for P&L calculations
+    const { data: dividends } = await supabase
+      .from('dividend_ledger')
+      .select('holding_id, total_dividend')
+      .eq('community_id', communityId)
+      .eq('user_id', user.id);
+
+    const divMap = {};
+    dividends?.forEach(d => {
+      if (!d.holding_id) return;
+      divMap[d.holding_id] = (divMap[d.holding_id] || 0) + Number(d.total_dividend);
+    });
+    setDividendMap(divMap);
 
     // Fetch last match performances for all players
     const playerIds = (marketsData || []).map((m) => m.players.id);
@@ -327,6 +358,12 @@ export default function CommunityMarketPage() {
       return true;
     })
     .sort((a, b) => {
+      if (sortBy === 'next_match') {
+        const timeA = nextMatchByTeam[a.players.team] || Infinity;
+        const timeB = nextMatchByTeam[b.players.team] || Infinity;
+        if (timeA !== timeB) return timeA - timeB;
+        return (b.players.avg_points || 0) - (a.players.avg_points || 0);
+      }
       if (sortBy === 'price') return b.current_price - a.current_price;
       if (sortBy === 'team') return a.players.team.localeCompare(b.players.team);
       if (sortBy === 'name') return a.players.name.localeCompare(b.players.name);
@@ -370,6 +407,7 @@ export default function CommunityMarketPage() {
             </button>
           </div>
           <div className="flex items-center gap-3">
+            <button onClick={() => router.push('/community/' + communityId + '/rules')} className="text-neutral-400 hover:text-white transition-colors cursor-pointer text-lg" title="How to Play">📖</button>
             <button onClick={() => router.push('/community/' + communityId + '/rivals')} className="text-neutral-400 hover:text-white transition-colors cursor-pointer text-lg" title="Rivals">👀</button>
             <button onClick={() => router.push('/community/' + communityId + '/dividends')} className="text-neutral-400 hover:text-white transition-colors cursor-pointer text-lg" title="My Dividends">💰</button>
             <button onClick={() => router.push('/community/' + communityId + '/leaderboard')} className="text-neutral-400 hover:text-white transition-colors cursor-pointer text-lg" title="Leaderboard">🏆</button>
@@ -434,44 +472,6 @@ export default function CommunityMarketPage() {
         </div>
       </div>
 
-      {/* How to Play */}
-      <div className="px-4 pt-3">
-        <button onClick={() => setShowRules(!showRules)} className="w-full flex items-center justify-between bg-neutral-900 border border-neutral-800 rounded-xl px-4 py-2.5 text-sm text-neutral-400 hover:text-white transition-colors cursor-pointer">
-          <span>📖 How to Play</span>
-          <span className="text-xs">{showRules ? '▲' : '▼'}</span>
-        </button>
-        {showRules && (
-          <div className="mt-2 bg-neutral-900 border border-neutral-800 rounded-xl p-4 space-y-3 text-sm text-neutral-400 leading-relaxed">
-            <div>
-              <p className="text-white font-semibold mb-1">🏏 The Game</p>
-              <p>Every IPL player is a tradeable stock. Buy low, sell high, or short players you think will underperform. Your goal: grow your ₹20,000 starting cash to the highest net worth by season end.</p>
-            </div>
-            <div>
-              <p className="text-white font-semibold mb-1">💰 Pricing</p>
-              <p>A player&#39;s base price = their average fantasy points × matches remaining. When people buy heavily, prices rise. When they sell, prices fall.</p>
-            </div>
-            <div>
-              <p className="text-white font-semibold mb-1">📊 Dividends</p>
-              <p>After every match, players who scored fantasy points pay dividends at ₹1 per point to those who hold them long. Short-holders pay that dividend instead.</p>
-            </div>
-            <div>
-              <p className="text-white font-semibold mb-1">⚔️ Strategy</p>
-              <p><strong className="text-neutral-300">Long</strong> a player = you bet they&#39;ll outperform expectations.</p>
-              <p><strong className="text-neutral-300">Short</strong> a player = you bet they&#39;ll underperform.</p>
-              <p>Cash can go negative — shorting big players who score well will cost you.</p>
-            </div>
-            <div>
-              <p className="text-white font-semibold mb-1">⭐ Scoring</p>
-              <p>Standard Dream11 T20 points: runs, boundaries, wickets, economy bonus, catches, etc. Playing XI gets +4 just for showing up.</p>
-            </div>
-            <div>
-              <p className="text-white font-semibold mb-1">🏆 At Season End</p>
-              <p>A small floor of ₹100 per share keeps positions valuable during playoffs. Whoever has the highest net worth wins.</p>
-            </div>
-          </div>
-        )}
-      </div>
-
       {/* Market Tab */}
       {tab === 'market' && (
         <div className="pb-20">
@@ -503,13 +503,13 @@ export default function CommunityMarketPage() {
 
           {/* Sort buttons */}
           <div className="px-4 pb-3 flex gap-2">
-            {['price', 'name', 'team'].map((s) => (
+            {['next_match', 'price', 'name', 'team'].map((s) => (
               <button
                 key={s}
                 onClick={() => setSortBy(s)}
                 className={"px-3 py-1 rounded-lg text-xs transition-all cursor-pointer " + (sortBy === s ? 'bg-neutral-800 text-white' : 'text-neutral-600 hover:text-neutral-400')}
               >
-                {s.charAt(0).toUpperCase() + s.slice(1)}
+                {s === 'next_match' ? 'Next match' : s.charAt(0).toUpperCase() + s.slice(1)}
               </button>
             ))}
           </div>
@@ -605,8 +605,12 @@ export default function CommunityMarketPage() {
                 const marketRow = markets.find((m) => String(m.players.id) === String(h.player_id));
                 const currentPrice = marketRow ? marketRow.current_price : h.avg_buy_price;
                 
-                const { pnl, pnlPct, error: pnlError } = calculatePositionPnl(h, marketRow);
-                const isProfit = pnl >= 0;
+                const { pnl: pricePnl, error: pnlError } = calculatePositionPnl(h, marketRow);
+                
+                const dividendsReceived = dividendMap[h.id] || 0;
+                const totalPnl = pnlError ? 0 : pricePnl + dividendsReceived;
+                const pnlPct = (totalPnl / (h.avg_buy_price * h.quantity)) * 100;
+                const isProfit = totalPnl >= 0;
 
                 return (
                   <button type="button" key={h.player_id + '-' + h.position_type + '-' + i} onClick={() => setSelectedPlayer(marketRow)} className="w-full text-left bg-neutral-900 rounded-xl p-4 border border-neutral-800 hover:bg-neutral-800 transition-colors cursor-pointer">
@@ -626,7 +630,7 @@ export default function CommunityMarketPage() {
                         ) : (
                           <>
                             <p className={"text-sm font-bold " + (isProfit ? 'text-emerald-400' : 'text-red-400')}>
-                              {isProfit ? '+' : ''}₹{pnl.toFixed(1)}
+                              {isProfit ? '+' : ''}₹{totalPnl.toFixed(1)}
                             </p>
                             <p className={"text-xs " + (isProfit ? 'text-emerald-500' : 'text-red-500')}>
                               {isProfit ? '+' : ''}{pnlPct.toFixed(1)}%
@@ -637,6 +641,9 @@ export default function CommunityMarketPage() {
                     </div>
                     <div className="flex items-center justify-between text-xs text-neutral-500">
                       <span>{h.quantity} × ₹{h.avg_buy_price.toFixed(1)} (now ₹{currentPrice.toFixed(1)})</span>
+                      {!pnlError && (
+                        <span className="opacity-80">Price: {pricePnl >= 0 ? '+' : ''}₹{pricePnl.toFixed(1)} · Div: {dividendsReceived >= 0 ? '+' : ''}₹{dividendsReceived.toFixed(1)}</span>
+                      )}
                     </div>
                   </button>
                 );

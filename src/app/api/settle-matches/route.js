@@ -112,6 +112,55 @@ async function findPlayerInDb(supabase, extId, name) {
   return null;
 }
 
+async function createUnknownPlayer(supabase, extId, name, teamGuess) {
+  const { data, error } = await supabase
+    .from('players')
+    .insert({
+      name,
+      external_id: extId,
+      team: teamGuess,
+      role: 'Batter', // default; can be updated manually
+      avg_points: 40,
+      matches_remaining: 0, // will recalculate later
+      is_rookie: true,
+      is_active: true
+    })
+    .select('id')
+    .single();
+  
+  if (error) {
+    console.error('Failed to create unknown player:', name, error);
+    return null;
+  }
+
+  const newPlayerId = data.id;
+
+  // After creating player, create markets in all communities
+  const { data: communities } = await supabase.from('communities').select('id');
+  if (communities) {
+    for (const c of communities) {
+      const { count } = await supabase
+        .from('community_members')
+        .select('id', { count: 'exact', head: true })
+        .eq('community_id', c.id);
+      
+      const poolSize = Math.max(10, (count || 1) * 10);
+      
+      await supabase.from('player_markets').insert({
+        community_id: c.id,
+        player_id: newPlayerId,
+        base_price: 100, // floor
+        current_price: 100,
+        initial_supply: poolSize,
+        total_supply: poolSize,
+        supply_remaining: poolSize
+      });
+    }
+  }
+
+  return newPlayerId;
+}
+
 async function settleMatchBatch(supabase, matches) {
   const results = [];
 
@@ -125,8 +174,13 @@ async function settleMatchBatch(supabase, matches) {
       const perfRows = [];
 
       for (const p of stats) {
-        const playerId = await findPlayerInDb(supabase, p.id, p.name);
-        if (!playerId) { console.log('Player not found:', p.name, p.id); continue; }
+        let playerId = await findPlayerInDb(supabase, p.id, p.name);
+        if (!playerId) {
+          console.log(`Unknown player in scorecard: ${p.name} (${p.id}) for match ${match.team_a} vs ${match.team_b}`);
+          // Guess team - just use team_a as default for now
+          playerId = await createUnknownPlayer(supabase, p.id, p.name, match.team_a);
+          if (!playerId) continue;
+        }
         perfRows.push({
           match_id: match.id, player_id: playerId, external_player_id: p.id,
           runs: p.runs, balls: p.balls, fours: p.fours, sixes: p.sixes, strike_rate: p.sr,

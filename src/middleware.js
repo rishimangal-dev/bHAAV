@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
-const PUBLIC_ROUTES = ['/login', '/verify'];
+const PUBLIC_ROUTES = ['/login', '/verify', '/auth/callback'];
 const PUBLIC_PREFIXES = ['/join'];
 const PUBLIC_API_PREFIXES = ['/api/settle-matches', '/api/sync-matches'];
 

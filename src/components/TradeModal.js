@@ -99,10 +99,11 @@ function CustomTooltip({ active, payload, label }) {
 
 function PerfTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
+  const isDNP = payload[0].payload.didNotPlay;
   return (
     <div className="bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-xs shadow-lg">
       <p className="text-neutral-400 mb-1">{label}</p>
-      <p className="text-white font-bold">{payload[0].value} pts</p>
+      <p className="text-white font-bold">{isDNP ? 'DNP' : `${payload[0].value} pts`}</p>
     </div>
   );
 }
@@ -129,38 +130,49 @@ export default function TradeModal({ market, communityId, member, holdings, isLo
     if (!showStats || statsLoaded) return;
 
     const fetchStats = async () => {
-      const [priceRes, perfRes] = await Promise.all([
+      const team = market.players.team;
+      const playerId = market.players.id;
+
+      const [priceRes, teamMatchesRes] = await Promise.all([
         supabase
           .from('price_history')
           .select('price, recorded_at')
           .eq('community_id', communityId)
-          .eq('player_id', market.players.id)
+          .eq('player_id', playerId)
           .order('recorded_at', { ascending: false })
           .limit(30),
         supabase
-          .from('match_performances')
-          .select('fantasy_points, matches!inner(match_date, team_a, team_b)')
-          .eq('player_id', market.players.id)
-          .order('matches(match_date)', { ascending: false })
-          .limit(5),
+          .from('matches')
+          .select('id, match_date, team_a, team_b, status')
+          .or(`team_a.eq.${team},team_b.eq.${team}`)
+          .eq('status', 'completed')
+          .order('match_date', { ascending: false })
+          .limit(8)
       ]);
 
+      let perfData = [];
+      const teamMatches = teamMatchesRes.data || [];
+
+      if (teamMatches.length > 0) {
+        const matchIds = teamMatches.map((m) => m.id);
+        const { data: perfs } = await supabase
+          .from('match_performances')
+          .select('match_id, fantasy_points, played')
+          .eq('player_id', playerId)
+          .in('match_id', matchIds);
+
+        perfData = teamMatches.reverse().map((m) => {
+          const perf = (perfs || []).find((p) => p.match_id === m.id);
+          const opponent = m.team_a === team ? m.team_b : m.team_a;
+          return {
+            date: 'vs ' + opponent,
+            points: perf?.played ? Number(perf.fantasy_points) : 0,
+            didNotPlay: !perf || !perf.played,
+          };
+        });
+      }
+
       const priceData = (priceRes.data || []).reverse().map((p) => ({
-        date: formatDateShort(p.recorded_at),
-        price: Number(p.price),
-      }));
-
-      const perfData = (perfRes.data || []).reverse().map((p) => {
-        const opponent = market.players.team === p.matches.team_a
-          ? p.matches.team_b
-          : p.matches.team_a;
-        return {
-          date: 'vs ' + opponent,
-          points: p.fantasy_points,
-        };
-      });
-
-      setPriceHistory(priceData);
       setPerformances(perfData);
       setStatsLoaded(true);
     };
@@ -338,11 +350,11 @@ export default function TradeModal({ market, communityId, member, holdings, isLo
                           width={30}
                         />
                         <Tooltip content={<PerfTooltip />} />
-                        <Bar dataKey="points" radius={[4, 4, 0, 0]}>
+                        <Bar dataKey="points" radius={[4, 4, 0, 0]} minPointSize={5}>
                           {performances.map((entry, index) => (
                             <Cell
                               key={index}
-                              fill={entry.points >= (market.players.avg_points || 0) ? '#34d399' : '#737373'}
+                              fill={entry.didNotPlay ? '#404040' : (entry.points >= (market.players.avg_points || 0) ? '#34d399' : '#737373')}
                             />
                           ))}
                         </Bar>
