@@ -72,10 +72,8 @@ export default function RulesPage() {
   return (
     <div className="min-h-screen bg-black text-white max-w-lg mx-auto flex flex-col">
       <div className="sticky top-0 bg-black/80 backdrop-blur-md z-10 p-4 border-b border-neutral-900 flex items-center gap-4">
-        <Link href={\`/community/\${id}\`} className="text-neutral-400 hover:text-white transition-colors">
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
+        <Link href={`/community/${id}`} className="w-10 h-10 bg-neutral-900 rounded-full flex items-center justify-center text-white hover:bg-neutral-800 transition-colors">
+          ←
         </Link>
         <h1 className="text-lg font-bold tracking-tight">How to Play Bhaav</h1>
       </div>
