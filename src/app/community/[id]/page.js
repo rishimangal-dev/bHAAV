@@ -371,12 +371,13 @@ export default function CommunityMarketPage() {
 
   const portfolioValue = holdings.reduce((sum, h) => {
     const marketRow = markets.find((m) => String(m.players.id) === String(h.player_id));
-    const currentPrice = marketRow ? marketRow.current_price : h.avg_buy_price;
+    const currentPrice = marketRow ? Number(marketRow.current_price) : Number(h.avg_buy_price);
+    const qty = Number(h.quantity);
     if (h.position_type === 'long') {
-      return sum + h.quantity * currentPrice;
+      return sum + qty * currentPrice;
     }
-    // short: locked collateral + unrealized P&L
-    return sum + h.avg_buy_price * h.quantity + (h.avg_buy_price - currentPrice) * h.quantity;
+    // short: negative position value (margin already deducted from cash)
+    return sum - qty * currentPrice;
   }, 0);
 
   if (loading) {
