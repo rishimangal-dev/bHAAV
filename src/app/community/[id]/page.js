@@ -78,7 +78,60 @@ export default function CommunityMarketPage() {
   const [dividendMap, setDividendMap] = useState({});
   const [toasts, setToasts] = useState([]);
   const [userId, setUserId] = useState(null);
+  const [selectedHoldings, setSelectedHoldings] = useState(new Set());
   const toastIdRef = useRef(0);
+
+  const toggleHolding = (holdingId) => {
+    setSelectedHoldings(prev => {
+      const next = new Set(prev);
+      if (next.has(holdingId)) next.delete(holdingId);
+      else next.add(holdingId);
+      return next;
+    });
+  };
+
+  const settleHoldings = async (holdingsToSettle) => {
+    if (!confirm(`Settle ${holdingsToSettle.length} position(s)?`)) return;
+
+    let success = 0, failed = 0, locked = 0;
+
+    for (const h of holdingsToSettle) {
+      const rpcName = h.position_type === 'long' ? 'sell_long' : 'cover_short';
+      const { data, error } = await supabase.rpc(rpcName, {
+        p_community_id: communityId,
+        p_player_id: h.player_id,
+        p_quantity: h.quantity,
+      });
+
+      if (error) {
+        failed++;
+      } else if (data?.success === false) {
+        if (data.error?.includes('Market closed')) locked++;
+        else failed++;
+      } else {
+        success++;
+      }
+    }
+
+    alert(`Settled ${success}.${locked > 0 ? ' ' + locked + ' locked.' : ''}${failed > 0 ? ' ' + failed + ' failed.' : ''}`);
+    setSelectedHoldings(new Set());
+    loadData();
+  };
+
+  const handleSellAllLong = () => {
+    const longs = holdings.filter(h => h.position_type === 'long' && h.quantity > 0);
+    settleHoldings(longs);
+  };
+
+  const handleCoverAllShort = () => {
+    const shorts = holdings.filter(h => h.position_type === 'short' && h.quantity > 0);
+    settleHoldings(shorts);
+  };
+
+  const handleSettleSelected = () => {
+    const selected = holdings.filter(h => selectedHoldings.has(h.id));
+    settleHoldings(selected);
+  };
 
   const loadData = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -593,6 +646,31 @@ export default function CommunityMarketPage() {
             </div>
           ) : (
             <div className="px-4 pt-4 space-y-3">
+              {/* Settle toolbar */}
+              <div className="sticky top-[52px] z-30 bg-black/90 backdrop-blur-md rounded-xl border border-neutral-800 p-3 flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={handleSellAllLong}
+                  disabled={!holdings.some(h => h.position_type === 'long' && h.quantity > 0)}
+                  className="px-3 py-1.5 text-xs font-medium rounded-lg bg-orange-900/40 text-orange-400 hover:bg-orange-900/60 transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  Sell All Long
+                </button>
+                <button
+                  onClick={handleCoverAllShort}
+                  disabled={!holdings.some(h => h.position_type === 'short' && h.quantity > 0)}
+                  className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-900/40 text-blue-400 hover:bg-blue-900/60 transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  Cover All Short
+                </button>
+                <button
+                  onClick={handleSettleSelected}
+                  disabled={selectedHoldings.size === 0}
+                  className="px-3 py-1.5 text-xs font-medium rounded-lg bg-neutral-800 text-white hover:bg-neutral-700 transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer ml-auto"
+                >
+                  Settle Selected{selectedHoldings.size > 0 ? ` (${selectedHoldings.size})` : ''}
+                </button>
+              </div>
+
               {holdings.map((h, i) => {
                 const marketRow = markets.find((m) => String(m.players.id) === String(h.player_id));
                 const currentPrice = marketRow ? marketRow.current_price : h.avg_buy_price;
@@ -603,41 +681,58 @@ export default function CommunityMarketPage() {
                 const totalPnl = pnlError ? 0 : pricePnl + dividendsReceived;
                 const pnlPct = (totalPnl / (h.avg_buy_price * h.quantity)) * 100;
                 const isProfit = totalPnl >= 0;
+                const isSelected = selectedHoldings.has(h.id);
 
                 return (
-                  <button type="button" key={h.player_id + '-' + h.position_type + '-' + i} onClick={() => setSelectedPlayer(marketRow)} className="w-full text-left bg-neutral-900 rounded-xl p-4 border border-neutral-800 hover:bg-neutral-800 transition-colors cursor-pointer">
-                    <div className="flex items-start justify-between mb-2">
-                      <div>
-                        <p className="text-sm font-semibold text-white">{h.players?.name || 'Unknown'}</p>
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className={"text-xs font-bold px-2 py-0.5 rounded " + (h.position_type === 'long' ? 'bg-emerald-900/50 text-emerald-400' : 'bg-red-900/50 text-red-400')}>
-                            {h.position_type.toUpperCase()}
-                          </span>
-                          <span className="text-xs text-neutral-500">{h.players?.team}</span>
+                  <div key={h.player_id + '-' + h.position_type + '-' + i} className={"flex items-start gap-3 bg-neutral-900 rounded-xl p-4 border transition-colors " + (isSelected ? 'border-emerald-700 bg-emerald-950/10' : 'border-neutral-800 hover:bg-neutral-800')}>
+                    {/* Checkbox */}
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); toggleHolding(h.id); }}
+                      className={"mt-1 w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-colors cursor-pointer " + (isSelected ? 'bg-emerald-600 border-emerald-600 text-white' : 'border-neutral-600 hover:border-neutral-400')}
+                    >
+                      {isSelected && (
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                    </button>
+
+                    {/* Holding card content */}
+                    <button type="button" onClick={() => setSelectedPlayer(marketRow)} className="flex-1 text-left cursor-pointer">
+                      <div className="flex items-start justify-between mb-2">
+                        <div>
+                          <p className="text-sm font-semibold text-white">{h.players?.name || 'Unknown'}</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className={"text-xs font-bold px-2 py-0.5 rounded " + (h.position_type === 'long' ? 'bg-emerald-900/50 text-emerald-400' : 'bg-red-900/50 text-red-400')}>
+                              {h.position_type.toUpperCase()}
+                            </span>
+                            <span className="text-xs text-neutral-500">{h.players?.team}</span>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          {pnlError ? (
+                            <p className="text-sm font-bold text-orange-400">{pnlError}</p>
+                          ) : (
+                            <>
+                              <p className={"text-sm font-bold " + (isProfit ? 'text-emerald-400' : 'text-red-400')}>
+                                {isProfit ? '+' : ''}₹{totalPnl.toFixed(1)}
+                              </p>
+                              <p className={"text-xs " + (isProfit ? 'text-emerald-500' : 'text-red-500')}>
+                                {isProfit ? '+' : ''}{pnlPct.toFixed(1)}%
+                              </p>
+                            </>
+                          )}
                         </div>
                       </div>
-                      <div className="text-right">
-                        {pnlError ? (
-                          <p className="text-sm font-bold text-orange-400">{pnlError}</p>
-                        ) : (
-                          <>
-                            <p className={"text-sm font-bold " + (isProfit ? 'text-emerald-400' : 'text-red-400')}>
-                              {isProfit ? '+' : ''}₹{totalPnl.toFixed(1)}
-                            </p>
-                            <p className={"text-xs " + (isProfit ? 'text-emerald-500' : 'text-red-500')}>
-                              {isProfit ? '+' : ''}{pnlPct.toFixed(1)}%
-                            </p>
-                          </>
+                      <div className="flex items-center justify-between text-xs text-neutral-500">
+                        <span>{h.quantity} × ₹{h.avg_buy_price.toFixed(1)} (now ₹{currentPrice.toFixed(1)})</span>
+                        {!pnlError && (
+                          <span className="opacity-80">Price: {pricePnl >= 0 ? '+' : ''}₹{pricePnl.toFixed(1)} · Div: {dividendsReceived >= 0 ? '+' : ''}₹{dividendsReceived.toFixed(1)}</span>
                         )}
                       </div>
-                    </div>
-                    <div className="flex items-center justify-between text-xs text-neutral-500">
-                      <span>{h.quantity} × ₹{h.avg_buy_price.toFixed(1)} (now ₹{currentPrice.toFixed(1)})</span>
-                      {!pnlError && (
-                        <span className="opacity-80">Price: {pricePnl >= 0 ? '+' : ''}₹{pricePnl.toFixed(1)} · Div: {dividendsReceived >= 0 ? '+' : ''}₹{dividendsReceived.toFixed(1)}</span>
-                      )}
-                    </div>
-                  </button>
+                    </button>
+                  </div>
                 );
               })}
             </div>
