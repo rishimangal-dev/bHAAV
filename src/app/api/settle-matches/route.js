@@ -166,39 +166,84 @@ async function settleMatchBatch(supabase, matches) {
 
   for (const match of matches) {
     try {
-      const sc = await fetchScorecard(match.external_id);
-      if (!sc || !sc.scorecard) { results.push({ match: match.team_a + ' vs ' + match.team_b, success: false, error: 'Scorecard unavailable' }); continue; }
+      // Check if performances already exist for this match
+      const { count: existingPerfs } = await supabase
+        .from('match_performances')
+        .select('*', { count: 'exact', head: true })
+        .eq('match_id', match.id);
 
-      const stats = parsePlayerStats(sc.scorecard);
-      let playersUpdated = 0;
-      const perfRows = [];
-
-      for (const p of stats) {
-        let playerId = await findPlayerInDb(supabase, p.id, p.name);
-        if (!playerId) {
-          console.log(`Unknown player in scorecard: ${p.name} (${p.id}) for match ${match.team_a} vs ${match.team_b}`);
-          // Guess team - just use team_a as default for now
-          playerId = await createUnknownPlayer(supabase, p.id, p.name, match.team_a);
-          if (!playerId) continue;
+      if (existingPerfs === 0) {
+        // Need to fetch scorecard and write performances
+        const sc = await fetchScorecard(match.external_id);
+        if (!sc || !sc.scorecard) {
+          console.error('Scorecard unavailable for match', match.match_number, match.external_id);
+          results.push({ match: match.team_a + ' vs ' + match.team_b, success: false, error: 'Scorecard unavailable' });
+          continue;
         }
-        perfRows.push({
-          match_id: match.id, player_id: playerId, external_player_id: p.id,
-          runs: p.runs, balls: p.balls, fours: p.fours, sixes: p.sixes, strike_rate: p.sr,
-          dismissal: p.dismissal, overs: p.overs, maidens: p.maidens, wickets: p.wickets,
-          runs_conceded: p.runs_conceded, economy: p.economy, lbw_bowled: p.lbw_bowled,
-          catches: p.catches, stumpings: p.stumpings, runouts: p.runouts,
-          played: true, fantasy_points: calculateFantasyPoints(p),
+
+        const stats = parsePlayerStats(sc.scorecard);
+        const perfRows = [];
+
+        for (const p of stats) {
+          let playerId = await findPlayerInDb(supabase, p.id, p.name);
+          if (!playerId) {
+            console.log('Unknown player:', p.name, p.id, '— creating');
+            playerId = await createUnknownPlayer(supabase, p.id, p.name, match.team_a);
+            if (!playerId) continue;
+          }
+          perfRows.push({
+            match_id: match.id, player_id: playerId, external_player_id: p.id,
+            runs: p.runs, balls: p.balls, fours: p.fours, sixes: p.sixes, strike_rate: p.sr,
+            dismissal: p.dismissal, overs: p.overs, maidens: p.maidens, wickets: p.wickets,
+            runs_conceded: p.runs_conceded, economy: p.economy, lbw_bowled: p.lbw_bowled,
+            catches: p.catches, stumpings: p.stumpings, runouts: p.runouts,
+            played: true, fantasy_points: calculateFantasyPoints(p),
+          });
+        }
+
+        if (perfRows.length > 0) {
+          const { error: upsertErr } = await supabase.from('match_performances').upsert(perfRows, { onConflict: 'match_id,player_id' });
+          if (upsertErr) {
+            console.error('Upsert error for match', match.match_number, ':', upsertErr);
+            results.push({ match: match.team_a + ' vs ' + match.team_b, success: false, error: 'Upsert: ' + upsertErr.message });
+            continue;
+          }
+        }
+      }
+
+      // Try to settle (with one retry)
+      let settleData, settleErr;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const r = await supabase.rpc('settle_match', { p_match_id: match.id });
+        settleData = r.data;
+        settleErr = r.error;
+        if (!settleErr && settleData && settleData.success !== false) break;
+        if (attempt === 0) {
+          console.warn('settle_match attempt 1 failed for match', match.match_number, '— retrying');
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+
+      if (settleErr) {
+        console.error('settle_match RPC error for match', match.match_number, ':', JSON.stringify(settleErr));
+        results.push({ match: match.team_a + ' vs ' + match.team_b, success: false, error: 'RPC: ' + (settleErr.message || JSON.stringify(settleErr)) });
+        continue;
+      }
+
+      if (settleData && settleData.success === false) {
+        console.error('settle_match returned failure for match', match.match_number, ':', settleData);
+        // Special case: "Already settled" is fine — means a previous attempt already worked
+        if (settleData.error === 'Already settled') {
+          results.push({ match: match.team_a + ' vs ' + match.team_b, success: true, already_settled: true });
+          continue;
+        }
+        results.push({
+          match: match.team_a + ' vs ' + match.team_b,
+          success: false,
+          error: 'settle_match: ' + (settleData.error || 'unknown'),
         });
-        playersUpdated++;
+        continue;
       }
-
-      if (perfRows.length > 0) {
-        const { error: upsertErr } = await supabase.from('match_performances').upsert(perfRows, { onConflict: 'match_id,player_id' });
-        if (upsertErr) { results.push({ match: match.team_a + ' vs ' + match.team_b, success: false, error: upsertErr.message }); continue; }
-      }
-
-      const { data: settleData, error: settleErr } = await supabase.rpc('settle_match', { p_match_id: match.id });
-      if (settleErr) { results.push({ match: match.team_a + ' vs ' + match.team_b, success: false, error: settleErr.message }); continue; }
 
       results.push({
         match: match.team_a + ' vs ' + match.team_b,
@@ -206,10 +251,10 @@ async function settleMatchBatch(supabase, matches) {
         dividends_paid: settleData?.dividends_paid || 0,
         shorts_charged: settleData?.shorts_charged || 0,
         community_avg: settleData?.community_avg_points || 0,
-        players_updated: playersUpdated,
       });
     } catch (err) {
-      results.push({ match: match.team_a + ' vs ' + match.team_b, success: false, error: err.message });
+      console.error('Exception settling match', match.match_number, ':', err);
+      results.push({ match: match.team_a + ' vs ' + match.team_b, success: false, error: 'Exception: ' + err.message });
     }
   }
 

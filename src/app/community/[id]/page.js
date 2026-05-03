@@ -557,7 +557,7 @@ export default function CommunityMarketPage() {
                       <p className="text-xs font-medium text-orange-400">🔒 Locked</p>
                     )}
                     <p className={"text-xs mt-0.5 " + (m.supply_remaining < 5 ? 'text-orange-400' : 'text-neutral-500')}>
-                      {m.supply_remaining} / 30 in pool
+                      {m.supply_remaining} / {m.initial_supply} in pool
                     </p>
                     {m.players.avg_points != null && m.players.matches_remaining != null && (
                       <p className="text-xs text-neutral-500 mt-0.5">Avg {Math.round(m.players.avg_points)} pts • {m.players.matches_remaining} left</p>
